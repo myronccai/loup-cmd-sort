@@ -1,0 +1,118 @@
+@mode(host.dual)
+
+# Comparing two lines, as GNU sort's compare() and keycompare() do in the C
+# locale: key by key, then the whole line as a last resort.
+
+from commands.keys import (Key, key_start, key_limit);
+from commands.numeric import (numeric_compare);
+from commands.table import (Table, line_count);
+
+const LOWER_A: int = 97;
+const LOWER_Z: int = 122;
+
+# Everything a comparison needs besides the lines. The key ranges of every
+# line are computed once, when the Comparer is built, so comparing two lines
+# only reads integers.
+pub class Comparer {
+    pub var keys: list[Key] = [];
+    # Compare whole lines when all keys are equal (not with -s or -u).
+    pub var last_resort: bool = true;
+    # The global -r, which also reverses the last-resort comparison.
+    pub var reverse: bool = false;
+    # Key k of line i is data[starts[k * lines + i] : limits[k * lines + i]].
+    pub var lines: int = 0;
+    pub var starts: list[int] = [];
+    pub var limits: list[int] = [];
+}
+
+# Builds the Comparer for the lines of `t`. `tab` is the -t byte or -1.
+pub func new_comparer(t: Table, keys: list[Key], tab: int, last_resort: bool, reverse: bool): Comparer {
+    let c = Comparer();
+    let n = line_count(t);
+    safe {
+        c.keys = keys;
+        c.last_resort = last_resort;
+        c.reverse = reverse;
+        c.lines = n;
+        for (key in keys) {
+            for (i in 0..n) {
+                let s = t.starts[i];
+                let e = t.ends[i];
+                let lo = key_start(t.data, s, e, key.sword, key.schar, key.skip_start, tab);
+                var hi = e;
+                if (key.eword >= 0) {
+                    hi = key_limit(t.data, s, e, key.eword, key.echar, key.skip_end, tab);
+                }
+                # A key that ends before it starts is empty.
+                if (hi < lo) {
+                    hi = lo;
+                }
+                c.starts.push(lo);
+                c.limits.push(hi);
+            }
+        }
+    }
+    return c;
+}
+
+func upper(b: int): int {
+    if (b >= LOWER_A and b <= LOWER_Z) {
+        return b - 32;
+    }
+    return b;
+}
+
+# Compares data[a:alim] with data[b:blim] byte by byte (unsigned), through
+# the -f fold if `fold`; a prefix comes before the longer range.
+pub func bytes_compare(data: list[int], a: int, alim: int, b: int, blim: int, fold: bool): int {
+    let la = alim - a;
+    let lb = blim - b;
+    let n = if (la < lb) { la } else { lb };
+    var k = 0;
+    while (k < n) {
+        var x = data[a + k];
+        var y = data[b + k];
+        if (fold) {
+            x = upper(x);
+            y = upper(y);
+        }
+        if (x != y) {
+            return if (x < y) { -1 } else { 1 };
+        }
+        k += 1;
+    }
+    if (la < lb) {
+        return -1;
+    }
+    if (la > lb) {
+        return 1;
+    }
+    return 0;
+}
+
+# Compares lines i and j of `t`: negative, zero or positive as line i sorts
+# before, with or after line j.
+pub func compare_lines(t: Table, c: Comparer, i: int, j: int): int {
+    let nkeys = c.keys.len();
+    var k = 0;
+    while (k < nkeys) {
+        let key = c.keys[k];
+        let ai = k * c.lines + i;
+        let bi = k * c.lines + j;
+        var diff = 0;
+        if (key.numeric) {
+            diff = numeric_compare(t.data, c.starts[ai], c.limits[ai], c.starts[bi], c.limits[bi]);
+        } else {
+            diff = bytes_compare(t.data, c.starts[ai], c.limits[ai], c.starts[bi], c.limits[bi], key.fold);
+        }
+        if (diff != 0) {
+            return if (key.reverse) { 0 - diff } else { diff };
+        }
+        k += 1;
+    }
+    if (nkeys > 0 and !c.last_resort) {
+        return 0;
+    }
+    let diff = bytes_compare(t.data, t.starts[i], t.ends[i], t.starts[j], t.ends[j], false);
+    return if (c.reverse) { 0 - diff } else { diff };
+}

@@ -1,12 +1,14 @@
-# template Loup commandline application
+# loup-cmd-sort
 
-A GitHub template for a command-line application written in
-[Loup](https://code-craft.ai/references/loup). It includes argument parsing,
-command dispatch, a sample `hello` command, tests, a native build and a CI
-workflow.
+GNU `sort` recreated in [Loup](https://code-craft.ai/references/loup): sort
+lines by bytes, numbers or keys (`-k POS1[,POS2]` with per-key `b f n r`),
+with `-t`, `-u`, `-s`, `-o FILE` and the `-c`/`-C` order check, using a stable
+merge sort and GNU's last-resort comparison.
 
-After creating a repository from this template, work through
-[REPOSITORY_TODOS.md](REPOSITORY_TODOS.md).
+Part of the **loup-cmd** series of example applications: classic Linux and
+Windows commands, and projects for each Loup execution mode, each in its own
+repository under [myronccai](https://github.com/myronccai?tab=repositories&q=loup-cmd).
+This one is `host.dual` Loup built as a native binary.
 
 ## Requirements
 
@@ -14,70 +16,147 @@ After creating a repository from this template, work through
 
   ```sh
   curl -fsSL https://github.com/code-craft-ai-company/loup-releases/releases/latest/download/loup-install.sh | sh
-  loup --version
   ```
 
-- `make`
-- `clang` 17 or later for native builds. Native builds are supported on Linux
-  x86-64 and arm64, and are a preview on macOS and Windows.
+- `make`, and `clang` 17 or later for the native build.
 
 ## Usage
 
 ```sh
-make run ARGS="--help"            # run from source
-make run ARGS="hello Ann --shout"
-make check                        # type-check the program
-make test                         # run the tests in tests/
-make build                        # native binary: build/myapp
-make ci                           # check, test, build and smoke-test the binary
-make clean
+make build                                     # native binary: build/sort
+make ci                                        # check, unit tests, build, end-to-end tests
+make run ARGS="-t: -k3,3n /etc/passwd"         # run from source with loup run
 ```
 
 ```text
-$ build/myapp --help
-usage: myapp [OPTIONS] COMMAND [ARGS...]
-
-A command-line application written in Loup.
-
-Commands:
-  hello [NAME]          Print a greeting (NAME defaults to 'world')
-  help                  Show this help
-
-Options:
-  -g, --greeting TEXT   Greeting used by 'hello' (default: Hello)
-      --shout           Print the greeting in upper case
-  -v, --verbose         Print diagnostic messages to stderr
-  -h, --help            Show this help and exit
-  -V, --version         Show the version and exit
+$ cat tests/fixtures/scores.txt
+carol:72:London
+alice:95:Paris
+bob:72:Berlin
+dave:8:Oslo
+erin:100:Rome
+$ build/sort tests/fixtures/scores.txt
+alice:95:Paris
+bob:72:Berlin
+carol:72:London
+dave:8:Oslo
+erin:100:Rome
+$ build/sort -t: -k2,2n tests/fixtures/scores.txt
+dave:8:Oslo
+bob:72:Berlin
+carol:72:London
+alice:95:Paris
+erin:100:Rome
+$ build/sort -t: -k2,2nr -k1,1 tests/fixtures/scores.txt
+erin:100:Rome
+alice:95:Paris
+bob:72:Berlin
+carol:72:London
+dave:8:Oslo
+$ printf '10\n9\n-1.5\nx\n2\n' | build/sort -n
+-1.5
+x
+2
+9
+10
+$ printf 'b\nA\na\nB\n' | build/sort -f
+A
+a
+B
+b
+$ printf 'b\nA\na\nB\n' | build/sort -fu
+A
+b
+$ printf 'x 2\ny 1\nx 1\n' | build/sort -k1,1
+x 1
+x 2
+y 1
+$ printf 'x 2\ny 1\nx 1\n' | build/sort -k1,1 -s
+x 2
+x 1
+y 1
+$ build/sort -c tests/fixtures/scores.txt; echo "exit $?"
+sort: tests/fixtures/scores.txt:2: disorder: alice:95:Paris
+exit 1
+$ build/sort -k 2.0 tests/fixtures/scores.txt; echo "exit $?"
+sort: character offset is zero: invalid field specification '2.0'
+exit 2
 ```
 
-Exit status: `0` success, `1` runtime failure, `2` usage error.
+Without `-s`, lines whose keys are equal are ordered by their whole bytes
+(`x 1` before `x 2` above); `-s` keeps them in input order, and `-u` keeps
+only the first of them.
+
+Options:
+
+| Option | Meaning |
+|---|---|
+| `-b`, `--ignore-leading-blanks` | ignore leading blanks (spaces and tabs) in keys |
+| `-f`, `--ignore-case` | compare `a`-`z` as `A`-`Z` |
+| `-n`, `--numeric-sort` | compare leading numbers: blanks, optional `-`, digits, optional `.` fraction; anything else is 0 |
+| `-r`, `--reverse` | reverse the result of comparisons |
+| `-k`, `--key=POS1[,POS2]` | sort on the part of the line from POS1 to POS2 (default: the line's end); a position is `F[.C]` followed by any of the letters `b f n r`, which then replace the global options for that key; repeat for secondary keys |
+| `-t`, `--field-separator=SEP` | fields are separated by the byte SEP (`'\0'` for NUL) instead of starting at each run of blanks |
+| `-u`, `--unique` | output only the first of each run of equal lines; with `-c`, equal lines are disorder |
+| `-s`, `--stable` | no last-resort comparison: equal lines keep their input order |
+| `-o`, `--output=FILE` | write to FILE instead of standard output (FILE may be one of the inputs) |
+| `-c`, `--check[=diagnose-first]` | check that the input is sorted; report the first line out of order |
+| `-C`, `--check=quiet`, `--check=silent` | check without a message |
+| `--help`, `--version` | print help or the version and exit |
+
+With no FILE, or when FILE is `-`, sort reads standard input. Options may
+appear anywhere, combine (`-nru`, `-t:`, `-k2,2n`), and long options may be
+abbreviated (`--rev`). `--` ends the options.
+
+Exit status: `0` if OK (and sorted, with `-c`/`-C`), `1` if `-c`/`-C` found a
+line out of order (and for an invalid `--check=` word, as GNU), `2` for
+trouble: a usage error, an input that cannot be read, an output that cannot
+be opened.
+
+## Differences from the original
+
+- Only the C locale: bytes compare as unsigned values and `-f` folds ASCII
+  letters, whatever `LC_ALL` or `LANG` say. GNU sort uses the locale's
+  collation unless `LC_ALL=C`; the output matches `LC_ALL=C sort`.
+- Not implemented: `-d`, `-g`, `-h`, `-i`, `-M`, `-R`, `-V` (and the same
+  letters in `-k`), `-m`, `-z`, `-S`, `-T`, `--parallel`, `--batch-size`,
+  `--compress-program`, `--debug`, `--files0-from`, `--random-source`,
+  `--sort=WORD` and the obsolete `+POS1 -POS2` key syntax. They are reported
+  as unknown options, or as `stray character in field spec` inside `-k`.
+- Long options can be abbreviated among the supported ones only: `--vers`
+  means `--version` here, while GNU finds it ambiguous with `--version-sort`;
+  `--ignore` lists two possibilities, not three.
+- All input is held in memory (eight bytes per input byte); there are no
+  temporary files, so very large inputs need a lot of memory.
+- A file that exists but cannot be read (permission denied) stops the native
+  program with Loup's own `IoError` message and status 1: the Loup 1.26.0
+  native runtime does not let the program catch that error. Missing files and
+  directories get GNU's messages and status 2. A `-o` file in a directory
+  that exists but is not writable is not reported.
+- The line printed after `disorder:` by `-c` has bytes that are not valid
+  UTF-8 replaced by U+FFFD. Sorted output keeps every byte.
+- `--version` prints one line; `--help` lists the supported options only.
 
 ## Layout
 
 ```text
-package.lppkg            # Loup manifest
-Makefile                 # run, check, test, build, ci, clean
-source/                  # the application's Loup code
-├── main.loup            # entry point
-├── cli/                 # argument parsing, help text, command dispatch
-└── commands/            # one module per command
-tests/                   # *_test.loup files
-specs/                   # feature specs: requirements, design, tasks
-skills/loup-programmer/  # agent skill for writing Loup
+source/main.loup                 # entry point
+source/appinfo.loup              # name, version, exit statuses
+source/cli/args.loup             # getopt_long-style options, checks, key inheritance
+source/cli/usage.loup            # --help and --version text
+source/cli/app.loup              # run(): parse, dispatch, exit status
+source/commands/sort.loup        # reading, sorting, -u, -c, output
+source/commands/keys.loup        # KEYDEF parsing, key start and end in a line
+source/commands/numeric.loup     # -n: GNU's strnumcmp
+source/commands/compare.loup     # the line comparator: keys, then last resort
+source/commands/mergesort.loup   # stable merge sort with a comparator function
+source/commands/table.loup       # all input as bytes, with line offsets
+source/commands/output.loup      # byte-exact output to stdout or a file
+tests/*_test.loup                # unit tests (make test)
+tests/fixtures/                  # small inputs for the tests
+tests/e2e.sh                     # end-to-end tests of build/sort (make e2e)
+specs/sort/                      # requirements, design, tasks
 ```
 
-[AGENTS.md](AGENTS.md) has the full layout, every build and test command, and
-the steps for adding a command.
-
-## Notes on the toolchain
-
-- On Linux x86-64, `loup` is the self-hosted driver and `loup-bootstrap` is
-  Stage0. `check` and `test` use `loup-bootstrap`; on other platforms both
-  names run the same tool. The Makefile handles this.
-- Modules import each other by their path under `source/`
-  (`from cli.args import (Options);`). Tests import them the same way, which
-  is why `make test` puts `source/` on `LOUPPATH`.
-- The Wasm build (`loup-bootstrap build`) is experimental: modules that use
-  `i"..."` interpolation build but trap at run time, so this template builds
-  native binaries.
+[AGENTS.md](AGENTS.md) has every build and test command and the conventions
+for changing the code.

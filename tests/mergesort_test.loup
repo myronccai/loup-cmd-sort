@@ -1,0 +1,39 @@
+@mode(host.dual)
+
+from debug.assert import (expect, expectEq);
+from commands.mergesort import (merge_sort);
+
+func joined(xs: list[int]): string {
+    var parts: list[string] = [];
+    for (x in xs) {
+        parts.push(str(x));
+    }
+    return parts.join(",");
+}
+
+func test_sorts_by_comparator(): void {
+    let values = [5, 3, 9, 1, 7, 3, 0, 8];
+    let order = merge_sort(values.len(), func(a: int, b: int): int {
+        return values[a] - values[b];
+    });
+    var sorted: list[int] = [];
+    for (i in order) {
+        sorted.push(values[i]);
+    }
+    expectEq(joined(sorted), "0,1,3,3,5,7,8,9", "ascending");
+}
+
+func test_stable(): void {
+    # Sort by tens only: equal elements keep their input order.
+    let values = [21, 13, 25, 11, 29, 17];
+    let order = merge_sort(values.len(), func(a: int, b: int): int {
+        return values[a] / 10 - values[b] / 10;
+    });
+    expectEq(joined(order), "1,3,5,0,2,4", "input order within equal runs");
+}
+
+func test_edge_sizes(): void {
+    expectEq(merge_sort(0, func(a: int, b: int): int { return a - b; }).len(), 0, "empty");
+    expectEq(joined(merge_sort(1, func(a: int, b: int): int { return a - b; })), "0", "one");
+    expectEq(joined(merge_sort(5, func(a: int, b: int): int { return b - a; })), "4,3,2,1,0", "reversed comparator");
+}

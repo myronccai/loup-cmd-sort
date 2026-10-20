@@ -1,0 +1,5 @@
+carol:72:London
+alice:95:Paris
+bob:72:Berlin
+dave:8:Oslo
+erin:100:Rome

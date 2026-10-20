@@ -1,0 +1,58 @@
+@mode(host.dual)
+
+from debug.assert import (expect, expectEq);
+from commands.numeric import (numeric_compare);
+from commands.table import (Table, new_table, append_text);
+
+# Compares the numbers `a` and `b` as -n does: -1, 0 or 1.
+func cmp(a: string, b: string): int {
+    let t = new_table();
+    append_text(edits: t, a + "\n" + b + "\n");
+    let r = numeric_compare(t.data, t.starts[0], t.ends[0], t.starts[1], t.ends[1]);
+    if (r < 0) {
+        return -1;
+    }
+    if (r > 0) {
+        return 1;
+    }
+    return 0;
+}
+
+func test_integers(): void {
+    expectEq(cmp("2", "10"), -1, "2 < 10");
+    expectEq(cmp("10", "9"), 1, "10 > 9");
+    expectEq(cmp("007", "7"), 0, "leading zeros");
+    expectEq(cmp("123456789012345678901234567890", "123456789012345678901234567891"), -1, "long numbers");
+    expectEq(cmp("  5", "5"), 0, "leading blanks");
+    expectEq(cmp("5abc", "5"), 0, "text after the number");
+}
+
+func test_signs(): void {
+    expectEq(cmp("-1", "1"), -1, "negative first");
+    expectEq(cmp("1", "-1"), 1, "positive last");
+    expectEq(cmp("-2", "-10"), 1, "-2 > -10");
+    expectEq(cmp("-0", "0"), 0, "-0 == 0");
+    expectEq(cmp("-0.00", ""), 0, "-0.00 == empty");
+    expectEq(cmp("-", "0"), 0, "lone minus is zero");
+    expectEq(cmp("+3", "0"), 0, "plus is not a sign");
+    expectEq(cmp("- 1", "0"), 0, "blank after minus");
+    expectEq(cmp("-.5", "-.25"), -1, "negative fractions");
+}
+
+func test_fractions(): void {
+    expectEq(cmp(".5", "0.50"), 0, "trailing zeros");
+    expectEq(cmp("1.5", "1.25"), 1, "1.5 > 1.25");
+    expectEq(cmp("1.05", "1.5"), -1, "1.05 < 1.5");
+    expectEq(cmp("1.", "1"), 0, "bare point");
+    expectEq(cmp("1.001", "1"), 1, "small fraction");
+    expectEq(cmp("0.000", "."), 0, "zero fraction");
+    expectEq(cmp("2.5", "10"), -1, "integer part first");
+}
+
+func test_non_numbers_are_zero(): void {
+    expectEq(cmp("abc", ""), 0, "text is zero");
+    expectEq(cmp("abc", "-1"), 1, "text > -1");
+    expectEq(cmp("abc", "0.1"), -1, "text < 0.1");
+    expectEq(cmp("1e3", "1"), 0, "no exponents");
+    expectEq(cmp("1,000", "1"), 0, "no thousands separator");
+}

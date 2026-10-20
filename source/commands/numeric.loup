@@ -1,0 +1,162 @@
+@mode(host.dual)
+
+# `-n`: compare the numbers at the start of two keys the way GNU sort does
+# in the C locale. This is a port of gnulib's strnumcmp (the decimal point
+# is `.`, there is no thousands separator). It never converts to a number:
+# it skips leading zeros, compares signs, then the lengths of the integer
+# parts, then their digits, then the fractions, so numbers of any length
+# compare exactly. A key that does not start with a number counts as zero.
+#
+# Keys are byte ranges data[pos:lim]. GNU's keys end with a NUL byte that
+# it writes after them; `at` returns 0 at and beyond `lim` for the same
+# effect.
+
+from commands.keys import (is_blank);
+
+const MINUS: int = 45;
+const DOT: int = 46;
+const ZERO: int = 48;
+
+func at(data: list[int], pos: int, lim: int): int {
+    if (pos < lim) {
+        return data[pos];
+    }
+    return 0;
+}
+
+func is_digit(b: int): bool {
+    return b >= 48 and b <= 57;
+}
+
+# The sign of `n` as -1, 0 or 1.
+func sign(n: int): int {
+    if (n < 0) {
+        return -1;
+    }
+    if (n > 0) {
+        return 1;
+    }
+    return 0;
+}
+
+# The position after the zeros that start at `pos`.
+func skip_zeros(data: list[int], pos: int, lim: int): int {
+    var p = pos;
+    while (at(data, p, lim) == ZERO) {
+        p += 1;
+    }
+    return p;
+}
+
+# The number of digits that start at `pos`.
+func digit_count(data: list[int], pos: int, lim: int): int {
+    var p = pos;
+    while (is_digit(at(data, p, lim))) {
+        p += 1;
+    }
+    return p - pos;
+}
+
+# Whether the number at `pos` (after its sign) is zero: zeros, an optional
+# `.`, then zeros, and no other digit.
+func is_zero(data: list[int], pos: int, lim: int): bool {
+    var p = skip_zeros(data, pos, lim);
+    if (at(data, p, lim) == DOT) {
+        p = skip_zeros(data, p + 1, lim);
+    }
+    return !is_digit(at(data, p, lim));
+}
+
+# Compares two fractions, each at its `.` or at the first byte after the
+# integer part (gnulib's fraccompare).
+func fraction_compare(data: list[int], a0: int, alim: int, b0: int, blim: int): int {
+    var a = a0;
+    var b = b0;
+    if (at(data, a, alim) == DOT and at(data, b, blim) == DOT) {
+        while (true) {
+            a += 1;
+            b += 1;
+            let x = at(data, a, alim);
+            let y = at(data, b, blim);
+            if (x != y) {
+                if (is_digit(x) and is_digit(y)) {
+                    return sign(x - y);
+                }
+                if (is_digit(x)) {
+                    return if (is_digit(at(data, skip_zeros(data, a, alim), alim))) { 1 } else { 0 };
+                }
+                if (is_digit(y)) {
+                    return if (is_digit(at(data, skip_zeros(data, b, blim), blim))) { -1 } else { 0 };
+                }
+                return 0;
+            }
+            if (!is_digit(x)) {
+                return 0;
+            }
+        }
+    }
+    if (at(data, a, alim) == DOT) {
+        return if (is_digit(at(data, skip_zeros(data, a + 1, alim), alim))) { 1 } else { 0 };
+    }
+    if (at(data, b, blim) == DOT) {
+        return if (is_digit(at(data, skip_zeros(data, b + 1, blim), blim))) { -1 } else { 0 };
+    }
+    return 0;
+}
+
+# Compares two non-negative numbers whose leading zeros are skipped.
+func magnitude_compare(data: list[int], a0: int, alim: int, b0: int, blim: int): int {
+    var a = a0;
+    var b = b0;
+    while (at(data, a, alim) == at(data, b, blim) and is_digit(at(data, a, alim))) {
+        a += 1;
+        b += 1;
+    }
+    let x = at(data, a, alim);
+    let y = at(data, b, blim);
+    if ((x == DOT and !is_digit(y)) or (y == DOT and !is_digit(x))) {
+        return fraction_compare(data, a, alim, b, blim);
+    }
+    let la = digit_count(data, a, alim);
+    let lb = digit_count(data, b, blim);
+    if (la != lb) {
+        return if (la < lb) { -1 } else { 1 };
+    }
+    if (la == 0) {
+        return 0;
+    }
+    return sign(x - y);
+}
+
+# Compares the numbers at the start of data[a:alim] and data[b:blim]:
+# negative, zero or positive as the first is smaller, equal or larger.
+pub func numeric_compare(data: list[int], a0: int, alim: int, b0: int, blim: int): int {
+    var a = a0;
+    var b = b0;
+    while (a < alim and is_blank(data[a])) {
+        a += 1;
+    }
+    while (b < blim and is_blank(data[b])) {
+        b += 1;
+    }
+    let neg_a = at(data, a, alim) == MINUS;
+    let neg_b = at(data, b, blim) == MINUS;
+    if (neg_a and !neg_b) {
+        # -x < y unless both are zero.
+        if (!is_zero(data, a + 1, alim)) {
+            return -1;
+        }
+        return if (is_zero(data, b, blim)) { 0 } else { -1 };
+    }
+    if (neg_b and !neg_a) {
+        if (!is_zero(data, b + 1, blim)) {
+            return 1;
+        }
+        return if (is_zero(data, a, alim)) { 0 } else { 1 };
+    }
+    if (neg_a and neg_b) {
+        # Both negative: the larger magnitude is the smaller number.
+        return magnitude_compare(data, skip_zeros(data, b + 1, blim), blim, skip_zeros(data, a + 1, alim), alim);
+    }
+    return magnitude_compare(data, skip_zeros(data, a, alim), alim, skip_zeros(data, b, blim), blim);
+}

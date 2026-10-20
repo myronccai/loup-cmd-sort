@@ -1,0 +1,64 @@
+@mode(host.dual)
+
+# A stable merge sort of the indexes 0..n-1, ordered by a comparator
+# function. Bottom-up: runs of 1, 2, 4, ... are merged from one list into
+# the other until a single run is left. When two elements compare equal
+# the one from the left run (earlier in the input) goes first, which is
+# what makes `-s` and `-u` keep the input order.
+#
+# The builtin list.sort is not used: it takes the values themselves, and
+# natively a comparator that reads a captured list of structs crashes
+# (see AGENTS.md). Sorting plain indexes with an explicit comparator works
+# in every lane.
+
+pub func merge_sort(n: int, cmp: fn(int, int): int): list[int] {
+    var src: list[int] = [];
+    var dst: list[int] = [];
+    for (k in 0..n) {
+        src.push(k);
+        dst.push(k);
+    }
+    var width = 1;
+    while (width < n) {
+        var lo = 0;
+        while (lo < n) {
+            var mid = lo + width;
+            if (mid > n) {
+                mid = n;
+            }
+            var hi = mid + width;
+            if (hi > n) {
+                hi = n;
+            }
+            var i = lo;
+            var j = mid;
+            var out = lo;
+            while (i < mid and j < hi) {
+                if (cmp(src[j], src[i]) < 0) {
+                    dst[out] = src[j];
+                    j += 1;
+                } else {
+                    dst[out] = src[i];
+                    i += 1;
+                }
+                out += 1;
+            }
+            while (i < mid) {
+                dst[out] = src[i];
+                i += 1;
+                out += 1;
+            }
+            while (j < hi) {
+                dst[out] = src[j];
+                j += 1;
+                out += 1;
+            }
+            lo = hi;
+        }
+        let merged = dst;
+        dst = src;
+        src = merged;
+        width = width * 2;
+    }
+    return src;
+}

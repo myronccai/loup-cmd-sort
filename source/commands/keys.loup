@@ -1,0 +1,307 @@
+@mode(host.dual)
+
+# Sort keys: the KEYDEF grammar of `-k POS1[,POS2]`, how the global ordering
+# options reach the keys, and where a key starts and ends in a line.
+#
+# Positions are kept 0-based, as GNU keeps them after parsing: `-k 2.3,4`
+# is sword 1, schar 2, eword 3, echar 0. A line is a byte range of a
+# `list[int]` (see commands/table.loup), so `key_start` and `key_limit` take
+# the data, the line's start and its limit (the offset of its newline).
+
+const DIGITS: string = "0123456789";
+const SPACE: int = 32;
+const TAB: int = 9;
+
+# Larger than any line. Counts that overflow are capped to it, as GNU caps
+# them to SIZE_MAX.
+const HUGE: int = 1000000000000000;
+
+# One sort key. A class rather than a struct: keys cross module boundaries,
+# and the native build corrupts struct values that do (see AGENTS.md).
+pub class Key {
+    # First field (0-based) and the byte offset in it.
+    pub var sword: int = 0;
+    pub var schar: int = 0;
+    # Last field (0-based), or -1 for the end of the line, and how many of
+    # its bytes are included (0 = the whole field).
+    pub var eword: int = -1;
+    pub var echar: int = 0;
+    # `b` on POS1 and on POS2: skip blanks before counting characters.
+    pub var skip_start: bool = false;
+    pub var skip_end: bool = false;
+    # `f`: compare a-z as A-Z.
+    pub var fold: bool = false;
+    # `n`: compare leading numbers.
+    pub var numeric: bool = false;
+    # `r`: reverse this key's result.
+    pub var reverse: bool = false;
+}
+
+# A key covering the whole line with no ordering options. The global
+# options are collected in one, and it is the key that -b, -f and -n sort
+# on when no -k is given.
+pub func whole_line_key(): Key {
+    return Key();
+}
+
+# Blanks in the C locale: space and tab.
+pub func is_blank(b: int): bool {
+    return b == SPACE or b == TAB;
+}
+
+# Whether the key has none of the ordering options b, f, n (GNU's
+# `default_key_compare`; `r` is checked separately by `inherit`).
+pub func has_no_ordering(k: Key): bool {
+    return !(k.skip_start or k.skip_end or k.fold or k.numeric);
+}
+
+# Copies the global ordering options into a key that has none of its own,
+# as GNU does once all options are read.
+pub func inherit(edits k: Key, gkey: Key): void {
+    if (has_no_ordering(k) and !k.reverse) {
+        safe {
+            k.skip_start = gkey.skip_start;
+            k.skip_end = gkey.skip_end;
+            k.fold = gkey.fold;
+            k.numeric = gkey.numeric;
+            k.reverse = gkey.reverse;
+        }
+    }
+}
+
+# Applies one ordering letter (b, f, n or r) to `k`. `b` sets the blank
+# flag of the start, of the end, or (for the global -b) of both. Returns
+# false for any other letter.
+pub func set_ordering(edits k: Key, letter: string, at_start: bool, at_end: bool): bool {
+    if (letter == "b") {
+        safe {
+            if (at_start) {
+                k.skip_start = true;
+            }
+            if (at_end) {
+                k.skip_end = true;
+            }
+        }
+    } else if (letter == "f") {
+        safe { k.fold = true; }
+    } else if (letter == "n") {
+        safe { k.numeric = true; }
+    } else if (letter == "r") {
+        safe { k.reverse = true; }
+    } else {
+        return false;
+    }
+    return true;
+}
+
+func chars_of(text: string): list[string] {
+    var out: list[string] = [];
+    for (ch in text) {
+        out.push(ch);
+    }
+    return out;
+}
+
+func rest_of(chars: list[string], first: int): string {
+    var parts: list[string] = [];
+    var i = first;
+    while (i < chars.len()) {
+        parts.push(chars[i]);
+        i += 1;
+    }
+    return parts.join("");
+}
+
+func quote(text: string): string {
+    return "'" + text + "'";
+}
+
+# The position after the run of digits that starts at `at`.
+func digits_end(chars: list[string], at: int): int {
+    var i = at;
+    while (i < chars.len() and DIGITS.index_of(chars[i]) >= 0) {
+        i += 1;
+    }
+    return i;
+}
+
+# The value of the digits chars[from:to], capped at HUGE.
+func count_value(chars: list[string], first: int, last: int): int {
+    var n = 0;
+    var i = first;
+    while (i < last) {
+        n = n * 10 + DIGITS.index_of(chars[i]);
+        if (n > HUGE) {
+            return HUGE;
+        }
+        i += 1;
+    }
+    return n;
+}
+
+# Reads ordering letters from `at` into `k`. Returns the position of the
+# first character that is not one.
+func read_letters(chars: list[string], at: int, edits k: Key, at_end: bool): int {
+    var i = at;
+    while (i < chars.len() and set_ordering(edits: k, chars[i], !at_end, at_end)) {
+        i += 1;
+    }
+    return i;
+}
+
+func bad_count(what: string, chars: list[string], at: int): string {
+    return what + ": invalid count at start of " + quote(rest_of(chars, at));
+}
+
+func bad_spec(what: string, spec: string): string {
+    return what + ": invalid field specification " + quote(spec);
+}
+
+# Parses a KEYDEF, `F[.C][OPTS][,F[.C][OPTS]]`, with GNU sort's messages
+# (without the `sort: ` prefix).
+pub func parse_key(spec: string): Result[Key, string] {
+    let chars = chars_of(spec);
+    let k = Key();
+
+    # POS1: F[.C][OPTS]
+    var i = digits_end(chars, 0);
+    if (i == 0) {
+        return Err(bad_count("invalid number at field start", chars, 0));
+    }
+    let field = count_value(chars, 0, i);
+    if (field == 0) {
+        return Err(bad_spec("field number is zero", spec));
+    }
+    var offset = 1;
+    if (i < chars.len() and chars[i] == ".") {
+        let j = digits_end(chars, i + 1);
+        if (j == i + 1) {
+            return Err(bad_count("invalid number after '.'", chars, i + 1));
+        }
+        offset = count_value(chars, i + 1, j);
+        if (offset == 0) {
+            return Err(bad_spec("character offset is zero", spec));
+        }
+        i = j;
+    }
+    safe {
+        k.sword = field - 1;
+        k.schar = offset - 1;
+    }
+    i = read_letters(chars, i, edits: k, false);
+
+    # ,POS2: F[.C][OPTS]
+    if (i < chars.len() and chars[i] == ",") {
+        let j = digits_end(chars, i + 1);
+        if (j == i + 1) {
+            return Err(bad_count("invalid number after ','", chars, i + 1));
+        }
+        let last = count_value(chars, i + 1, j);
+        if (last == 0) {
+            return Err(bad_spec("field number is zero", spec));
+        }
+        var count = 0;
+        i = j;
+        if (i < chars.len() and chars[i] == ".") {
+            let m = digits_end(chars, i + 1);
+            if (m == i + 1) {
+                return Err(bad_count("invalid number after '.'", chars, i + 1));
+            }
+            count = count_value(chars, i + 1, m);
+            i = m;
+        }
+        safe {
+            k.eword = last - 1;
+            k.echar = count;
+        }
+        i = read_letters(chars, i, edits: k, true);
+    }
+
+    if (i < chars.len()) {
+        return Err(bad_spec("stray character in field spec", spec));
+    }
+    return Ok(k);
+}
+
+# Where a key starts in the line data[start:lim] (GNU's begfield): skip
+# `sword` fields, then blanks if `skip_blanks`, then `schar` bytes, never
+# past `lim`. `tab` is the -t byte, or -1 for blank-separated fields, where
+# a field begins with the blanks before it.
+pub func key_start(data: list[int], start: int, lim: int, sword: int, schar: int, skip_blanks: bool, tab: int): int {
+    var ptr = start;
+    var fields = sword;
+    if (tab >= 0) {
+        while (ptr < lim and fields > 0) {
+            fields -= 1;
+            while (ptr < lim and data[ptr] != tab) {
+                ptr += 1;
+            }
+            if (ptr < lim) {
+                ptr += 1;
+            }
+        }
+    } else {
+        while (ptr < lim and fields > 0) {
+            fields -= 1;
+            while (ptr < lim and is_blank(data[ptr])) {
+                ptr += 1;
+            }
+            while (ptr < lim and !is_blank(data[ptr])) {
+                ptr += 1;
+            }
+        }
+    }
+    if (skip_blanks) {
+        while (ptr < lim and is_blank(data[ptr])) {
+            ptr += 1;
+        }
+    }
+    if (schar >= lim - ptr) {
+        return lim;
+    }
+    return ptr + schar;
+}
+
+# Where a key ends, one past its last byte, in the line data[start:lim]
+# (GNU's limfield). `eword` is the 0-based last field; `echar` is how many
+# of its bytes count, 0 meaning all of them.
+pub func key_limit(data: list[int], start: int, lim: int, eword: int, echar: int, skip_blanks: bool, tab: int): int {
+    var ptr = start;
+    var fields = eword;
+    if (echar == 0) {
+        fields += 1;
+    }
+    if (tab >= 0) {
+        while (ptr < lim and fields > 0) {
+            fields -= 1;
+            while (ptr < lim and data[ptr] != tab) {
+                ptr += 1;
+            }
+            if (ptr < lim and (fields > 0 or echar != 0)) {
+                ptr += 1;
+            }
+        }
+    } else {
+        while (ptr < lim and fields > 0) {
+            fields -= 1;
+            while (ptr < lim and is_blank(data[ptr])) {
+                ptr += 1;
+            }
+            while (ptr < lim and !is_blank(data[ptr])) {
+                ptr += 1;
+            }
+        }
+    }
+    if (echar != 0) {
+        if (skip_blanks) {
+            while (ptr < lim and is_blank(data[ptr])) {
+                ptr += 1;
+            }
+        }
+        if (echar >= lim - ptr) {
+            return lim;
+        }
+        return ptr + echar;
+    }
+    return ptr;
+}

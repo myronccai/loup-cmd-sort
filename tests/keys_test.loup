@@ -1,0 +1,116 @@
+@mode(host.dual)
+
+from debug.assert import (expect, expectEq);
+from commands.keys import (Key, parse_key, inherit, whole_line_key, set_ordering, key_start, key_limit);
+from commands.table import (Table, new_table, append_text);
+
+func key(spec: string): Key {
+    return parse_key(spec).unwrap();
+}
+
+func error_of(spec: string): string {
+    return parse_key(spec).unwrap_err();
+}
+
+# The key `spec` of the one-line text `line`, with -t byte `tab`.
+func extract(line: string, spec: string, tab: int): string {
+    let t = new_table();
+    append_text(edits: t, line);
+    let k = key(spec);
+    let s = t.starts[0];
+    let e = t.ends[0];
+    let lo = key_start(t.data, s, e, k.sword, k.schar, k.skip_start, tab);
+    var hi = e;
+    if (k.eword >= 0) {
+        hi = key_limit(t.data, s, e, k.eword, k.echar, k.skip_end, tab);
+    }
+    if (hi < lo) {
+        hi = lo;
+    }
+    var bytes: list[int] = [];
+    var i = lo;
+    while (i < hi) {
+        bytes.push(t.data[i]);
+        i += 1;
+    }
+    return bytesFromInts(bytes).decode();
+}
+
+func test_positions(): void {
+    let k = key("2.3,4.5");
+    expectEq(k.sword, 1, "sword");
+    expectEq(k.schar, 2, "schar");
+    expectEq(k.eword, 3, "eword");
+    expectEq(k.echar, 5, "echar");
+    let open = key("3");
+    expectEq(open.sword, 2, "field only");
+    expectEq(open.schar, 0, "start of field");
+    expectEq(open.eword, -1, "to the end of the line");
+    expectEq(key("1,2.0").echar, 0, ".0 is the end of the field");
+}
+
+func test_letters(): void {
+    let k = key("2bf,3bnr");
+    expect(k.skip_start and k.skip_end, "b on both ends");
+    expect(k.fold and k.numeric and k.reverse, "f n r");
+    let s = key("1b");
+    expect(s.skip_start and !s.skip_end, "b on POS1 only");
+    let e = key("1,1b");
+    expect(!e.skip_start and e.skip_end, "b on POS2 only");
+}
+
+func test_errors(): void {
+    expectEq(error_of("0"), "field number is zero: invalid field specification '0'", "zero field");
+    expectEq(error_of("1.0"), "character offset is zero: invalid field specification '1.0'", "zero offset");
+    expectEq(error_of("1,0"), "field number is zero: invalid field specification '1,0'", "zero end field");
+    expectEq(error_of("x"), "invalid number at field start: invalid count at start of 'x'", "no number");
+    expectEq(error_of(""), "invalid number at field start: invalid count at start of ''", "empty");
+    expectEq(error_of("1.x"), "invalid number after '.': invalid count at start of 'x'", "bad offset");
+    expectEq(error_of("1,x"), "invalid number after ',': invalid count at start of 'x'", "bad end");
+    expectEq(error_of("1,2."), "invalid number after '.': invalid count at start of ''", "bad end offset");
+    expectEq(error_of("1d"), "stray character in field spec: invalid field specification '1d'", "unsupported letter");
+    expectEq(error_of("1.2.3"), "stray character in field spec: invalid field specification '1.2.3'", "two dots");
+    expectEq(key("99999999999999999999999").sword, 999999999999999, "huge numbers are capped");
+}
+
+func test_blank_separated_fields(): void {
+    expectEq(extract("a  bb ccc", "2", -1), "  bb ccc", "field 2 to the end keeps its blanks");
+    expectEq(extract("a  bb ccc", "2,2", -1), "  bb", "field 2 only");
+    expectEq(extract("a  bb ccc", "2b,2", -1), "bb", "b skips the blanks");
+    expectEq(extract("a  bb ccc", "2.2,2", -1), " bb", "offset counts the blanks");
+    expectEq(extract("a  bb ccc", "2.2b,2", -1), "b", "offset after b");
+    expectEq(extract(" a b", "1,1", -1), " a", "leading blanks belong to field 1");
+    expectEq(extract("a b", "5", -1), "", "missing field");
+    expectEq(extract("a b c", "3,1", -1), "", "end before start");
+    expectEq(extract("abc def", "1.2,1.2", -1), "b", "one character");
+    expectEq(extract("abc def", "1,2.2", -1), "abc d", "end offset counts blanks");
+    expectEq(extract("abc  def", "1,2.2b", -1), "abc  de", "b on POS2 skips blanks");
+}
+
+func test_separator_fields(): void {
+    let colon = 58;
+    expectEq(extract("a:b::d", "2,2", colon), "b", "second field");
+    expectEq(extract("a:b::d", "3,3", colon), "", "empty field");
+    expectEq(extract("a:b::d", "4", colon), "d", "last field");
+    expectEq(extract("a:b::d", "2", colon), "b::d", "to the end");
+    expectEq(extract("a: b", "2b,2", colon), "b", "b with -t");
+    expectEq(extract("a:bcd:e", "2.2,2.3", colon), "cd", "offsets");
+    expectEq(extract("a:bcd", "2,3", colon), "bcd", "end past the last field");
+}
+
+func test_inherit(): void {
+    let g = whole_line_key();
+    set_ordering(edits: g, "b", true, true);
+    set_ordering(edits: g, "n", true, true);
+    set_ordering(edits: g, "r", true, true);
+    let plain = key("2");
+    inherit(edits: plain, g);
+    expect(plain.skip_start and plain.skip_end and plain.numeric and plain.reverse, "plain key inherits");
+    let own = key("2f");
+    inherit(edits: own, g);
+    expect(own.fold and !own.numeric and !own.reverse, "key with letters does not");
+    let rev = key("2r");
+    inherit(edits: rev, g);
+    expect(!rev.numeric, "r alone also blocks inheritance");
+    expect(!set_ordering(edits: g, "d", true, true), "d is not supported");
+}

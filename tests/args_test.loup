@@ -1,64 +1,135 @@
 @mode(host.dual)
 
 from debug.assert import (expect, expectEq);
-from cli.args import (parse_args, DEFAULT_GREETING);
+from cli.args import (Options, ArgError, parse_args, find_long);
 
-func test_no_arguments(): void {
+func parse(argv: list[string]): Options {
+    return parse_args(argv).unwrap();
+}
+
+func error_of(argv: list[string]): ArgError {
+    return parse_args(argv).unwrap_err();
+}
+
+func test_defaults(): void {
     let none: list[string] = [];
-    let opts = parse_args(none).unwrap();
-    expectEq(opts.command, "", "no command");
-    expectEq(opts.operands.len(), 0, "no operands");
-    expectEq(opts.greeting, DEFAULT_GREETING, "default greeting");
-    expect(!opts.help and !opts.version and !opts.verbose and !opts.shout, "no flags set");
+    let opts = parse(none);
+    expect(!opts.help and !opts.version, "no help or version");
+    expectEq(opts.keys.len(), 0, "no keys");
+    expectEq(opts.tab, -1, "blank-separated fields");
+    expect(!opts.distinct and !opts.stable and !opts.reverse, "no flags");
+    expectEq(opts.check, "", "no check");
+    expect(!opts.has_output, "standard output");
+    expectEq(opts.files.len(), 0, "no files");
 }
 
-func test_command_and_operands(): void {
-    let opts = parse_args(["hello", "Ann"]).unwrap();
-    expectEq(opts.command, "hello", "command");
-    expectEq(opts.operands.len(), 1, "one operand");
-    expectEq(opts.operands[0], "Ann", "operand");
+func test_operands_and_options_mixed(): void {
+    let opts = parse(["a", "-r", "-", "b", "--", "-n", "--x"]);
+    expect(opts.reverse, "-r after an operand");
+    expectEq(opts.keys.len(), 0, "-n after -- is a file");
+    expectEq(opts.files.len(), 5, "five files");
+    expectEq(opts.files[1], "-", "lone dash");
+    expectEq(opts.files[3], "-n", "after --");
+    expectEq(opts.files[4], "--x", "after --");
 }
 
-func test_flags_anywhere(): void {
-    let opts = parse_args(["-v", "hello", "--shout", "Ann"]).unwrap();
-    expect(opts.verbose, "verbose");
-    expect(opts.shout, "shout");
-    expectEq(opts.command, "hello", "command");
-    expectEq(opts.operands[0], "Ann", "operand");
+func test_clusters_and_values(): void {
+    let opts = parse(["-rus", "-t:", "-k2,2n", "-o", "out"]);
+    expect(opts.reverse and opts.distinct and opts.stable, "-rus");
+    expectEq(opts.tab, 58, "-t: attached");
+    expectEq(opts.keys.len(), 1, "one key");
+    expect(opts.keys[0].numeric, "key flag n");
+    expectEq(opts.output, "out", "-o VALUE");
+    expect(opts.has_output, "has output");
+    expectEq(parse(["-t", ","]).tab, 44, "-t VALUE");
+    expectEq(parse(["-nk", "3"]).keys[0].sword, 2, "-nk VALUE");
+    expectEq(parse(["-t", "\\0"]).tab, 0, "-t '\\0' is NUL");
 }
 
-func test_help_and_version(): void {
-    expect(parse_args(["--help"]).unwrap().help, "--help");
-    expect(parse_args(["-h"]).unwrap().help, "-h");
-    expect(parse_args(["--version"]).unwrap().version, "--version");
-    expect(parse_args(["-V"]).unwrap().version, "-V");
+func test_long_options(): void {
+    let opts = parse(["--key=2", "--field-separator", ":", "--rev", "--uniq", "--output=o"]);
+    expectEq(opts.keys[0].sword, 1, "--key=");
+    expectEq(opts.tab, 58, "--field-separator VALUE");
+    expect(opts.reverse, "--rev abbreviates --reverse");
+    expect(opts.distinct, "--uniq");
+    expectEq(opts.output, "o", "--output=");
+    expect(parse(["--stable"]).stable, "--stable");
+    expect(parse(["--ignore-c"]).keys[0].fold, "--ignore-c is -f");
+    expect(parse(["--ignore-l"]).keys[0].skip_start, "--ignore-l is -b");
+    expect(parse(["--numeric"]).keys[0].numeric, "--numeric");
+    expectEq(find_long("ignore").len(), 2, "two options start with ignore");
+    expectEq(find_long("help")[0], 10, "exact match");
 }
 
-func test_value_option_forms(): void {
-    expectEq(parse_args(["-g", "Hi"]).unwrap().greeting, "Hi", "-g VALUE");
-    expectEq(parse_args(["--greeting", "Hi"]).unwrap().greeting, "Hi", "--greeting VALUE");
-    expectEq(parse_args(["--greeting=a=b"]).unwrap().greeting, "a=b", "--greeting=VALUE keeps '='");
+func test_check_forms(): void {
+    expectEq(parse(["-c"]).check, "c", "-c");
+    expectEq(parse(["-C"]).check, "C", "-C");
+    expectEq(parse(["--check"]).check, "c", "--check");
+    expectEq(parse(["--check=quiet"]).check, "C", "quiet");
+    expectEq(parse(["--check=s"]).check, "C", "silent prefix");
+    expectEq(parse(["--check=diag"]).check, "c", "diagnose-first prefix");
+    expectEq(parse(["-c", "-c"]).check, "c", "repeated -c");
 }
 
-func test_double_dash_ends_options(): void {
-    let opts = parse_args(["hello", "--", "--shout"]).unwrap();
-    expect(!opts.shout, "--shout after -- is an operand");
-    expectEq(opts.operands[0], "--shout", "operand");
+func test_help_and_version_stop_parsing(): void {
+    expect(parse(["--help", "-k0"]).help, "--help first");
+    expect(parse(["--vers", "--bogus"]).version, "--version first");
+    expectEq(error_of(["-k0", "--help"]).message, "field number is zero: invalid field specification '0'", "error first");
 }
 
-func test_lone_dash_is_operand(): void {
-    let opts = parse_args(["hello", "-"]).unwrap();
-    expectEq(opts.operands[0], "-", "operand");
+func test_getopt_errors(): void {
+    let e = error_of(["-x"]);
+    expectEq(e.message, "invalid option -- 'x'", "invalid short");
+    expect(e.try_help, "Try line");
+    expectEq(e.status, 2, "status 2");
+    expectEq(error_of(["-d"]).message, "invalid option -- 'd'", "unsupported -d");
+    expectEq(error_of(["--bogus"]).message, "unrecognized option '--bogus'", "unknown long");
+    expectEq(error_of(["-k"]).message, "option requires an argument -- 'k'", "missing value");
+    expectEq(error_of(["--key"]).message, "option '--key' requires an argument", "missing long value");
+    expectEq(error_of(["--reverse=1"]).message, "option '--reverse' doesn't allow an argument", "unwanted value");
+    expectEq(error_of(["--ignore"]).message, "option '--ignore' is ambiguous; possibilities: '--ignore-leading-blanks' '--ignore-case'", "ambiguous");
 }
 
-func test_unknown_option(): void {
-    expectEq(parse_args(["--nope"]).unwrap_err(), "unknown option '--nope'", "error message");
+func test_check_word_errors(): void {
+    let e = error_of(["--check=loud"]);
+    expect(e.message.startsWith("invalid argument 'loud' for '--check'\nValid arguments are:"), "invalid word");
+    expectEq(e.status, 1, "GNU exits 1 here");
+    expect(e.try_help, "Try line");
+    expect(error_of(["--check="]).message.startsWith("ambiguous argument '' for '--check'"), "empty word");
 }
 
-func test_missing_value(): void {
-    expectEq(parse_args(["-g"]).unwrap_err(), "option '-g' requires a value", "error message");
+func test_sort_errors(): void {
+    expectEq(error_of(["-t", ""]).message, "empty tab", "empty tab");
+    expectEq(error_of(["-t", "ab"]).message, "multi-character tab 'ab'", "two-byte tab");
+    expectEq(error_of(["-t", "é"]).message, "multi-character tab 'é'", "multibyte tab");
+    expectEq(error_of(["-t:", "-t,"]).message, "incompatible tabs", "two tabs");
+    expect(parse(["-t:", "-t:"]).tab == 58, "same tab twice");
+    expectEq(error_of(["-o", "a", "-o", "b"]).message, "multiple output files specified", "two outputs");
+    expect(parse(["-o", "a", "-o", "a"]).has_output, "same output twice");
+    expectEq(error_of(["-c", "-C"]).message, "options '-cC' are incompatible", "-c and -C");
+    expectEq(error_of(["-C", "--check"]).message, "options '-cC' are incompatible", "-C and --check");
+    expectEq(error_of(["-c", "a", "b"]).message, "extra operand 'b' not allowed with -c", "two files with -c");
+    expectEq(error_of(["-C", "-o", "x"]).message, "options '-Co' are incompatible", "-C with -o");
+    expect(!error_of(["-t", "ab"]).try_help, "no Try line");
+    expectEq(error_of(["-t", "ab"]).status, 2, "status 2");
 }
 
-func test_flag_with_value(): void {
-    expectEq(parse_args(["--shout=1"]).unwrap_err(), "option '--shout' does not take a value", "error message");
+func test_global_options_make_a_whole_line_key(): void {
+    let opts = parse(["-f", "-b"]);
+    expectEq(opts.keys.len(), 1, "one key");
+    let k = opts.keys[0];
+    expect(k.fold and k.skip_start and k.skip_end, "-f and -b");
+    expectEq(k.sword, 0, "from the start");
+    expectEq(k.eword, -1, "to the end");
+    expectEq(parse(["-r"]).keys.len(), 0, "-r alone needs no key");
+    expect(parse(["-r"]).reverse, "-r reverses the last resort");
+}
+
+func test_keys_inherit_global_options(): void {
+    let opts = parse(["-k2", "-k3n", "-k4r", "-n", "-r"]);
+    expectEq(opts.keys.len(), 3, "three keys");
+    expect(opts.keys[0].numeric and opts.keys[0].reverse, "plain key inherits -n -r");
+    expect(opts.keys[1].numeric and !opts.keys[1].reverse, "key with n keeps its own");
+    expect(opts.keys[2].reverse and !opts.keys[2].numeric, "key with r keeps its own");
+    expect(opts.reverse, "global reverse");
 }

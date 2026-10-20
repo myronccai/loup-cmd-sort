@@ -1,0 +1,87 @@
+@mode(host.dual)
+
+# All input lines, as bytes. Every input is appended to one `list[int]`
+# (one element per byte) and a line is the range data[starts[i]:ends[i]];
+# ends[i] is the offset of its newline. Working on bytes rather than Loup
+# strings gives the C locale's byte order and byte offsets, keeps bytes that
+# are not valid UTF-8, and lets the comparator run without allocating.
+
+const NEWLINE: int = 10;
+
+pub class Table {
+    pub var data: list[int] = [];
+    pub var starts: list[int] = [];
+    pub var ends: list[int] = [];
+}
+
+pub func new_table(): Table {
+    return Table();
+}
+
+pub func line_count(t: Table): int {
+    return t.starts.len();
+}
+
+# Appends the bytes of one input. A last line without a newline gets one,
+# so lines never run from one input into the next.
+pub func append_bytes(edits t: Table, b: bytes): void {
+    let n = b.len();
+    var start = t.data.len();
+    safe {
+        for (k in 0..n) {
+            let byte = b[k];
+            t.data.push(byte);
+            if (byte == NEWLINE) {
+                let end = t.data.len() - 1;
+                t.starts.push(start);
+                t.ends.push(end);
+                start = end + 1;
+            }
+        }
+        if (start < t.data.len()) {
+            t.ends.push(t.data.len());
+            t.starts.push(start);
+            t.data.push(NEWLINE);
+        }
+    }
+}
+
+# The UTF-8 bytes of a code point.
+func utf8_of(cp: int): list[int] {
+    if (cp < 0x80) {
+        return [cp];
+    }
+    if (cp < 0x800) {
+        return [0xC0 | (cp >> 6), 0x80 | (cp & 0x3F)];
+    }
+    if (cp < 0x10000) {
+        return [0xE0 | (cp >> 12), 0x80 | ((cp >> 6) & 0x3F), 0x80 | (cp & 0x3F)];
+    }
+    return [0xF0 | (cp >> 18), 0x80 | ((cp >> 12) & 0x3F), 0x80 | ((cp >> 6) & 0x3F), 0x80 | (cp & 0x3F)];
+}
+
+# Appends a string as one input (UTF-8 encoded). Used by the unit tests,
+# which build their input from string literals.
+pub func append_text(edits t: Table, text: string): void {
+    var ints: list[int] = [];
+    for (ch in text) {
+        let cp = match char.fromString(ch) {
+            Some(c) => c.toInt(),
+            None => 63,
+        };
+        for (b in utf8_of(cp)) {
+            ints.push(b);
+        }
+    }
+    append_bytes(edits: t, bytesFromInts(ints));
+}
+
+# Appends line `i`, with its newline, to `out`.
+pub func push_line(edits out: list[int], t: Table, i: int): void {
+    let e = t.ends[i];
+    var k = t.starts[i];
+    while (k <= e) {
+        out.push(t.data[k]);
+        k += 1;
+    }
+}

@@ -1,45 +1,179 @@
 @mode(host.dual)
 
-# Command-line parsing. Loup 1.26 has no CLI library, so arguments are
-# parsed by hand into an Options value.
+# Command-line parsing for sort, following GNU getopt_long and GNU sort:
 #
-# Grammar: [OPTIONS] COMMAND [OPERANDS...]
-#   Options may appear anywhere before `--`; everything after `--` is an
-#   operand. Value options accept `--name VALUE` and `--name=VALUE`.
+# - options and operands may be mixed; `--` ends the options and `-` alone
+#   is an operand (standard input);
+# - short options cluster (`-nru`), and one that arity a value arity the
+#   rest of its word or the next argument (`-t:`, `-t :`, `-k2,2n`);
+# - long options take `--name=VALUE` or `--name VALUE` and may be shortened
+#   to any unambiguous prefix (`--rev`); `--check` arity its value only as
+#   `--check=WORD`;
+# - each option is acted on as it is read, so the first error wins and
+#   `--help` before an error still prints the help.
+#
+# Global -b, -f, -n and -r are collected in a whole-line Key; once all
+# options are read they are copied into every -k key that has no ordering
+# letters of its own, as GNU does.
 
-pub const DEFAULT_GREETING: string = "Hello";
+from appinfo import (EXIT_TROUBLE);
+from commands.keys import (Key, whole_line_key, parse_key, set_ordering, inherit, has_no_ordering);
 
-pub struct Options {
-    pub command: string;
-    pub operands: list[string];
-    pub help: bool;
-    pub version: bool;
-    pub verbose: bool;
-    pub shout: bool;
-    pub greeting: string;
+# The parsed command line. A class, not a struct: it crosses module
+# boundaries, and native builds corrupt struct values that do so when
+# another type shares field names (see AGENTS.md).
+pub class Options {
+    pub var help: bool = false;
+    pub var version: bool = false;
+    # The keys, after inheriting the global options. With no -k but a
+    # global -b, -f or -n, a single whole-line key.
+    pub var keys: list[Key] = [];
+    # The -t byte, or -1 for blank-separated fields.
+    pub var tab: int = -1;
+    pub var distinct: bool = false;
+    pub var stable: bool = false;
+    # The global -r: it reverses the last-resort comparison too.
+    pub var reverse: bool = false;
+    # "" (sort), "c" (check and report) or "C" (check quietly).
+    pub var check: string = "";
+    pub var output: string = "";
+    pub var has_output: bool = false;
+    pub var files: list[string] = [];
 }
 
-pub func parse_args(argv: list[string]): Result[Options, string] {
-    var command = "";
-    var operands: list[string] = [];
-    var help = false;
-    var version = false;
-    var verbose = false;
-    var shout = false;
-    var greeting = DEFAULT_GREETING;
+# A command-line error. `message` has no `sort: ` prefix and may span
+# several lines; `try_help` asks for the `Try 'sort --help'` line after it.
+pub class ArgError {
+    pub let message: string;
+    pub let try_help: bool;
+    pub let status: int;
+
+    new(message: string, try_help: bool, status: int) {
+        this.message = message;
+        this.try_help = try_help;
+        this.status = status;
+    }
+}
+
+# Short options: these take no value...
+const SHORT_FLAGS: string = "bcCfnrsu";
+# ...and these take one.
+const SHORT_WITH_VALUE: string = "kot";
+
+# The long options, in the order GNU lists them, the short option each
+# stands for, and whether it arity a value ("0" no, "1" yes, "?" only as
+# `--name=VALUE`).
+func long_names(): list[string] {
+    return [
+        "ignore-leading-blanks", "check", "ignore-case", "key", "numeric-sort",
+        "output", "reverse", "stable", "field-separator", "unique", "help",
+        "version",
+    ];
+}
+
+func long_keys(): list[string] {
+    return ["b", "check", "f", "k", "n", "o", "r", "s", "t", "u", "help", "version"];
+}
+
+func long_values(): list[string] {
+    return ["0", "?", "0", "1", "0", "1", "0", "0", "1", "0", "0", "0"];
+}
+
+func usage_error(message: string): ArgError {
+    return ArgError(message, true, EXIT_TROUBLE);
+}
+
+func plain_error(message: string): ArgError {
+    return ArgError(message, false, EXIT_TROUBLE);
+}
+
+func quote(text: string): string {
+    return "'" + text + "'";
+}
+
+# Indexes of the long options `name` selects: the exact match if there is
+# one, otherwise every option it is a prefix of.
+pub func find_long(name: string): list[int] {
+    let names = long_names();
+    var found: list[int] = [];
+    var i = 0;
+    while (i < names.len()) {
+        if (names[i] == name) {
+            return [i];
+        }
+        if (name.len() > 0 and names[i].startsWith(name)) {
+            found.push(i);
+        }
+        i += 1;
+    }
+    return found;
+}
+
+# The -c/-C letter for `--check=WORD`, matched like GNU's argmatch: exact,
+# or an unambiguous prefix of quiet, silent (C) or diagnose-first (c).
+func check_word(word: string): Result[string, ArgError] {
+    let words = ["quiet", "silent", "diagnose-first"];
+    let letters = ["C", "C", "c"];
+    var found = "";
+    var ambiguous = false;
+    for (k in 0..words.len()) {
+        if (words[k] == word) {
+            return Ok(letters[k]);
+        }
+        if (words[k].startsWith(word)) {
+            if (found != "" and found != letters[k]) {
+                ambiguous = true;
+            }
+            found = letters[k];
+        }
+    }
+    if (found != "" and !ambiguous) {
+        return Ok(found);
+    }
+    let what = if (ambiguous) { "ambiguous" } else { "invalid" };
+    let lines = [
+        what + " argument " + quote(word) + " for '--check'",
+        "Valid arguments are:",
+        "  - 'quiet', 'silent'",
+        "  - 'diagnose-first'",
+    ];
+    # GNU exits with 1 here (argmatch's usage(EXIT_FAILURE)), not 2.
+    return Err(ArgError(lines.join("\n"), true, 1));
+}
+
+# The byte for `-t VALUE`, or an error.
+func tab_byte(value: string): Result[int, ArgError] {
+    if (value.byteLength() == 0) {
+        return Err(plain_error("empty tab"));
+    }
+    if (value.byteLength() > 1) {
+        if (value == "\\0") {
+            return Ok(0);
+        }
+        return Err(plain_error("multi-character tab " + quote(value)));
+    }
+    let code = match char.fromString(value) {
+        Some(c) => c.toInt(),
+        None => -1,
+    };
+    return Ok(code);
+}
+
+pub func parse_args(argv: list[string]): Result[Options, ArgError] {
+    let opts = Options();
+    let gkey = whole_line_key();
+    var keys: list[Key] = [];
+    var files: list[string] = [];
     var only_operands = false;
 
+    # Each element of argv becomes zero or more (key, value) pairs, which
+    # the loop at the bottom acts on.
     var i = 0;
     while (i < argv.len()) {
         let arg = argv[i];
         i += 1;
-
         if (only_operands or arg == "-" or !arg.startsWith("-")) {
-            if (command.is_empty()) {
-                command = arg;
-            } else {
-                operands.push(arg);
-            }
+            files.push(arg);
             continue;
         }
         if (arg == "--") {
@@ -47,52 +181,163 @@ pub func parse_args(argv: list[string]): Result[Options, string] {
             continue;
         }
 
-        # Split `--name=value` into its name and inline value.
-        var name = arg;
-        var inline_value: Option[string] = None;
-        if (arg.startsWith("--") and arg.contains("=")) {
-            let parts = arg.split("=");
-            name = parts[0];
-            inline_value = Some(parts.slice(1).join("="));
-        }
-
-        if (name == "-g" or name == "--greeting") {
-            match inline_value {
-                Some(v) => { greeting = v; },
-                None => {
-                    if (i >= argv.len()) {
-                        return Err(i"option '{$ name $}' requires a value");
-                    }
-                    greeting = argv[i];
-                    i += 1;
-                },
+        var opt_keys: list[string] = [];
+        var opt_values: list[string] = [];
+        if (arg.startsWith("--")) {
+            let body = arg.slice(2);
+            let eq = body.index_of("=");
+            let name = if (eq >= 0) { body.slice(0, eq) } else { body };
+            let found = find_long(name);
+            if (found.len() == 0) {
+                return Err(usage_error("unrecognized option " + quote(arg)));
             }
-            continue;
+            if (found.len() > 1) {
+                var names: list[string] = [];
+                for (k in found) {
+                    names.push(quote("--" + long_names()[k]));
+                }
+                return Err(usage_error("option " + quote(arg) + " is ambiguous; possibilities: " + names.join(" ")));
+            }
+            let idx = found[0];
+            let long = "--" + long_names()[idx];
+            let arity = long_values()[idx];
+            var value = "";
+            var key = long_keys()[idx];
+            if (arity == "1") {
+                if (eq >= 0) {
+                    value = body.slice(eq + 1);
+                } else if (i < argv.len()) {
+                    value = argv[i];
+                    i += 1;
+                } else {
+                    return Err(usage_error("option " + quote(long) + " requires an argument"));
+                }
+            } else if (arity == "?") {
+                key = "c";
+                if (eq >= 0) {
+                    match check_word(body.slice(eq + 1)) {
+                        Ok(letter) => {
+                            key = letter;
+                        },
+                        Err(e) => {
+                            return Err(e);
+                        },
+                    }
+                }
+            } else if (eq >= 0) {
+                return Err(usage_error("option " + quote(long) + " doesn't allow an argument"));
+            }
+            opt_keys.push(key);
+            opt_values.push(value);
+        } else {
+            # A cluster of short options.
+            var letters: list[string] = [];
+            for (ch in arg) {
+                letters.push(ch);
+            }
+            var j = 1;
+            while (j < letters.len()) {
+                let letter = letters[j];
+                j += 1;
+                if (SHORT_FLAGS.index_of(letter) >= 0) {
+                    opt_keys.push(letter);
+                    opt_values.push("");
+                } else if (SHORT_WITH_VALUE.index_of(letter) >= 0) {
+                    var value = "";
+                    if (j < letters.len()) {
+                        var rest: list[string] = [];
+                        while (j < letters.len()) {
+                            rest.push(letters[j]);
+                            j += 1;
+                        }
+                        value = rest.join("");
+                    } else if (i < argv.len()) {
+                        value = argv[i];
+                        i += 1;
+                    } else {
+                        return Err(usage_error("option requires an argument -- " + quote(letter)));
+                    }
+                    opt_keys.push(letter);
+                    opt_values.push(value);
+                } else {
+                    return Err(usage_error("invalid option -- " + quote(letter)));
+                }
+            }
         }
 
-        if (inline_value.is_some()) {
-            return Err(i"option '{$ name $}' does not take a value");
-        }
-        if (name == "-h" or name == "--help") {
-            help = true;
-        } else if (name == "-V" or name == "--version") {
-            version = true;
-        } else if (name == "-v" or name == "--verbose") {
-            verbose = true;
-        } else if (name == "--shout") {
-            shout = true;
-        } else {
-            return Err(i"unknown option '{$ name $}'");
+        var n = 0;
+        while (n < opt_keys.len()) {
+            let key = opt_keys[n];
+            let value = opt_values[n];
+            n += 1;
+            if (key == "help") {
+                safe { opts.help = true; }
+                return Ok(opts);
+            } else if (key == "version") {
+                safe { opts.version = true; }
+                return Ok(opts);
+            } else if (key == "b" or key == "f" or key == "n" or key == "r") {
+                set_ordering(edits: gkey, key, true, true);
+            } else if (key == "c" or key == "C") {
+                if (opts.check != "" and opts.check != key) {
+                    return Err(plain_error("options '-cC' are incompatible"));
+                }
+                safe { opts.check = key; }
+            } else if (key == "k") {
+                match parse_key(value) {
+                    Ok(k) => {
+                        keys.push(k);
+                    },
+                    Err(msg) => {
+                        return Err(plain_error(msg));
+                    },
+                }
+            } else if (key == "o") {
+                if (opts.has_output and opts.output != value) {
+                    return Err(plain_error("multiple output files specified"));
+                }
+                safe {
+                    opts.output = value;
+                    opts.has_output = true;
+                }
+            } else if (key == "s") {
+                safe { opts.stable = true; }
+            } else if (key == "t") {
+                let byte = match tab_byte(value) {
+                    Ok(b) => b,
+                    Err(e) => {
+                        return Err(e);
+                    },
+                };
+                if (opts.tab >= 0 and opts.tab != byte) {
+                    return Err(plain_error("incompatible tabs"));
+                }
+                safe { opts.tab = byte; }
+            } else if (key == "u") {
+                safe { opts.distinct = true; }
+            }
         }
     }
 
-    return Ok(Options(
-        command = command,
-        operands = operands,
-        help = help,
-        version = version,
-        verbose = verbose,
-        shout = shout,
-        greeting = greeting,
-    ));
+    if (opts.check != "") {
+        if (files.len() > 1) {
+            return Err(plain_error("extra operand " + quote(files[1]) + " not allowed with -" + opts.check));
+        }
+        if (opts.has_output) {
+            return Err(plain_error("options '-" + opts.check + "o' are incompatible"));
+        }
+    }
+
+    for (k in keys) {
+        inherit(edits: k, gkey);
+    }
+    if (keys.len() == 0 and !has_no_ordering(gkey)) {
+        keys.push(gkey);
+    }
+    safe {
+        opts.keys = keys;
+        opts.reverse = gkey.reverse;
+        opts.files = files;
+    }
+    return Ok(opts);
 }

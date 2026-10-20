@@ -1,0 +1,86 @@
+@mode(host.dual)
+
+# Writing the sorted bytes. `print` writes a string's bytes unchanged, but
+# a Loup string can only be made from valid UTF-8 (`decode()` replaces
+# anything else with U+FFFD). So valid UTF-8 output is printed as one
+# string, and anything else goes byte by byte through C's putchar, which
+# only the native build can call (`loup run` stops with "unsupported
+# instruction"). A file named by -o is written with writeBytes, which is
+# byte-exact everywhere.
+
+extern native "c" func putchar(c: int32): int32;
+extern native "c" func fflush(stream: int): int32;
+
+# Whether `data` is well-formed UTF-8 (no overlong forms, surrogates or
+# code points above U+10FFFF), so that `decode()` keeps it unchanged.
+pub func is_utf8(data: list[int]): bool {
+    let n = data.len();
+    var i = 0;
+    while (i < n) {
+        let b = data[i];
+        if (b < 0x80) {
+            i += 1;
+            continue;
+        }
+        var need = 0;
+        var lo = 0x80;
+        var hi = 0xBF;
+        if (b >= 0xC2 and b <= 0xDF) {
+            need = 1;
+        } else if (b == 0xE0) {
+            need = 2;
+            lo = 0xA0;
+        } else if (b == 0xED) {
+            need = 2;
+            hi = 0x9F;
+        } else if (b >= 0xE1 and b <= 0xEF) {
+            need = 2;
+        } else if (b == 0xF0) {
+            need = 3;
+            lo = 0x90;
+        } else if (b == 0xF4) {
+            need = 3;
+            hi = 0x8F;
+        } else if (b >= 0xF1 and b <= 0xF3) {
+            need = 3;
+        } else {
+            return false;
+        }
+        if (i + need >= n) {
+            return false;
+        }
+        for (k in 1..need + 1) {
+            let c = data[i + k];
+            if (c < lo or c > hi) {
+                return false;
+            }
+            lo = 0x80;
+            hi = 0xBF;
+        }
+        i += need + 1;
+    }
+    return true;
+}
+
+# `data` as a string, for output that is valid UTF-8.
+pub func text_of(data: list[int]): string {
+    return bytesFromInts(data).decode();
+}
+
+# Writes `data` to standard output exactly.
+pub func write_stdout(data: list[int]): void {
+    if (is_utf8(data)) {
+        print(text_of(data));
+        return;
+    }
+    for (b in data) {
+        putchar(b as int32);
+    }
+    # fflush(NULL): flush C's buffer before the program exits.
+    fflush(0);
+}
+
+# Writes `data` to the file `path`, replacing it.
+pub func write_file(path: string, data: list[int]): void {
+    writeBytes(path, bytesFromInts(data));
+}

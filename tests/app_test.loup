@@ -1,25 +1,36 @@
 @mode(host.dual)
 
 # Exit statuses of the whole command line. These tests print the program's
-# normal output and error messages.
+# normal output and messages.
 
 from debug.assert import (expectEq);
-from appinfo import (EXIT_OK, EXIT_USAGE);
+from appinfo import (EXIT_OK, EXIT_DISORDER, EXIT_TROUBLE);
 from cli.app import (run);
 
 func test_version_succeeds(): void {
     expectEq(run(["--version"]), EXIT_OK, "--version");
 }
 
-func test_hello_succeeds(): void {
-    expectEq(run(["hello", "tests"]), EXIT_OK, "hello NAME");
+func test_help_succeeds(): void {
+    expectEq(run(["--help"]), EXIT_OK, "--help");
 }
 
-func test_unknown_command_is_usage_error(): void {
-    expectEq(run(["bogus"]), EXIT_USAGE, "unknown command");
+func test_sort_file_succeeds(): void {
+    expectEq(run(["-t:", "-k2,2n", "tests/fixtures/scores.txt"]), EXIT_OK, "sort a file");
 }
 
-func test_missing_command_is_usage_error(): void {
-    let none: list[string] = [];
-    expectEq(run(none), EXIT_USAGE, "no command");
+func test_check_statuses(): void {
+    expectEq(run(["-c", "tests/fixtures/sorted.txt"]), EXIT_OK, "sorted");
+    expectEq(run(["-C", "tests/fixtures/scores.txt"]), EXIT_DISORDER, "not sorted");
+}
+
+func test_usage_errors(): void {
+    expectEq(run(["-x"]), EXIT_TROUBLE, "invalid option");
+    expectEq(run(["-k", "0"]), EXIT_TROUBLE, "bad key");
+    expectEq(run(["--check=loud"]), 1, "bad --check word");
+}
+
+func test_missing_input(): void {
+    expectEq(run(["tests/fixtures/no-such-file"]), EXIT_TROUBLE, "missing file");
+    expectEq(run(["tests/fixtures"]), EXIT_TROUBLE, "directory");
 }

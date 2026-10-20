@@ -1,0 +1,116 @@
+@mode(host.dual)
+
+from debug.assert import (expect, expectEq);
+from cli.args import (Options, parse_args);
+from commands.sort import (sort_text, first_disorder, comparer_for, line_text);
+from commands.table import (Table, new_table, append_text, append_bytes, line_count);
+from commands.output import (is_utf8);
+
+# Sorts the lines `lines` (joined with newlines) with the options `argv`
+# and returns the output lines joined with `|`.
+func sorted(argv: list[string], lines: list[string]): string {
+    let opts = parse_args(argv).unwrap();
+    let out = sort_text(lines.join("\n") + "\n", opts);
+    var parts = out.split("\n");
+    parts.pop();
+    return parts.join("|");
+}
+
+func disorder(argv: list[string], lines: list[string]): int {
+    let opts = parse_args(argv).unwrap();
+    let t = new_table();
+    append_text(edits: t, lines.join("\n") + "\n");
+    return first_disorder(t, comparer_for(t, opts), opts.distinct);
+}
+
+func test_byte_order(): void {
+    let none: list[string] = [];
+    expectEq(sorted(none, ["b", "a", "B", "_", "ab", "", "a"]), "|B|_|a|a|ab|b", "C locale order");
+    expectEq(sorted(none, ["é", "z", "e"]), "e|z|é", "UTF-8 sorts by bytes");
+}
+
+func test_reverse(): void {
+    expectEq(sorted(["-r"], ["b", "a", "c"]), "c|b|a", "-r");
+}
+
+func test_fold(): void {
+    expectEq(sorted(["-f"], ["b", "_", "a", "B", "A"]), "A|a|B|b|_", "-f with last resort");
+    expectEq(sorted(["-fu"], ["b", "A", "a", "B"]), "A|b", "-fu keeps the first of each run");
+}
+
+func test_numeric(): void {
+    expectEq(sorted(["-n"], ["10", "9", "-1", "x", "2.5", "-0"]), "-1|-0|x|2.5|9|10", "-n");
+    expectEq(sorted(["-nr"], ["1", "3", "2"]), "3|2|1", "-nr");
+    expectEq(sorted(["-n"], ["1", "01", "1.0"]), "01|1|1.0", "equal numbers: last resort");
+    expectEq(sorted(["-ns"], ["1", "01", "1.0"]), "1|01|1.0", "-s keeps input order");
+    expectEq(sorted(["-nu"], ["1", "01", "2", "1.0"]), "1|2", "-u keeps the first");
+}
+
+func test_blanks(): void {
+    expectEq(sorted(none_args(), ["  b", " a", "c"]), "  b| a|c", "blanks count");
+    expectEq(sorted(["-b"], ["  b", " a", "c"]), " a|  b|c", "-b");
+}
+
+func none_args(): list[string] {
+    let none: list[string] = [];
+    return none;
+}
+
+func test_keys(): void {
+    let rows = ["b 2", "a 10", "c 1", "a 2"];
+    expectEq(sorted(["-k2n"], rows), "c 1|a 2|b 2|a 10", "-k2n with last resort");
+    expectEq(sorted(["-k2n", "-s"], rows), "c 1|b 2|a 2|a 10", "-k2n -s");
+    expectEq(sorted(["-k1,1", "-k2nr"], rows), "a 10|a 2|b 2|c 1", "two keys");
+    expectEq(sorted(["-k2"], rows), "c 1|a 10|a 2|b 2", "text key from field 2");
+    expectEq(sorted(["-t", ":", "-k2,2n"], ["x:3:a", "y:1:b", "z:2:c"]), "y:1:b|z:2:c|x:3:a", "-t");
+    expectEq(sorted(["-k1.2,1.2"], ["ab", "ba", "ac"]), "ba|ab|ac", "character positions");
+}
+
+func test_global_reverse_with_keys(): void {
+    let rows = ["b 1", "a 1", "c 0"];
+    expectEq(sorted(["-k2n", "-r"], rows), "c 0|b 1|a 1", "key with n is not reversed; last resort is");
+    expectEq(sorted(["-r", "-k2"], rows), "b 1|a 1|c 0", "plain key inherits -r");
+}
+
+func test_unique_without_keys(): void {
+    expectEq(sorted(["-u"], ["b", "a", "b", "a", "A"]), "A|a|b", "-u on whole lines");
+}
+
+func test_input_without_final_newline(): void {
+    let opts = parse_args(none_args()).unwrap();
+    expectEq(sort_text("b\na", opts), "a\nb\n", "a newline is added");
+    expectEq(sort_text("", opts), "", "empty input");
+    expectEq(sort_text("\n\n", opts), "\n\n", "empty lines");
+}
+
+func test_first_disorder(): void {
+    expectEq(disorder(none_args(), ["a", "b", "b", "c"]), 0, "sorted");
+    expectEq(disorder(none_args(), ["a", "c", "b"]), 3, "line 3 out of order");
+    expectEq(disorder(["-u"], ["a", "b", "b"]), 3, "-u: equal lines are disorder");
+    expectEq(disorder(["-n"], ["2", "10"]), 0, "numeric order");
+    expectEq(disorder(["-r"], ["a", "b"]), 2, "reversed");
+}
+
+func test_line_text(): void {
+    let t = new_table();
+    append_text(edits: t, "one\ntwo\n");
+    expectEq(line_count(t), 2, "two lines");
+    expectEq(line_text(t, 1), "two", "line 2");
+}
+
+func test_append_bytes_keeps_every_byte(): void {
+    let t = new_table();
+    append_bytes(edits: t, bytesFromInts([98, 0, 10, 255, 10, 97]));
+    expectEq(line_count(t), 3, "three lines");
+    expectEq(t.data.len(), 7, "a newline was added");
+    expectEq(t.data[1], 0, "NUL kept");
+    expectEq(t.data[3], 255, "0xFF kept");
+}
+
+func test_is_utf8(): void {
+    expect(is_utf8([97, 0xC3, 0xA9, 10]), "valid");
+    expect(!is_utf8([0xFF]), "0xFF");
+    expect(!is_utf8([0xC3]), "truncated");
+    expect(!is_utf8([0xED, 0xA0, 0x80]), "surrogate");
+    expect(!is_utf8([0xC0, 0x80]), "overlong");
+}

@@ -1,28 +1,48 @@
 @mode(host.dual)
 
-from appinfo import (APP_NAME, APP_VERSION, APP_SUMMARY);
-from cli.args import (DEFAULT_GREETING);
+from appinfo import (APP_NAME, APP_VERSION);
 
 pub func usage(): string {
     let lines = [
-        i"usage: {$ APP_NAME $} [OPTIONS] COMMAND [ARGS...]",
+        i"Usage: {$ APP_NAME $} [OPTION]... [FILE]...",
+        "Write sorted concatenation of all FILE(s) to standard output.",
         "",
-        APP_SUMMARY,
+        "With no FILE, or when FILE is -, read standard input.",
         "",
-        "Commands:",
-        "  hello [NAME]          Print a greeting (NAME defaults to 'world')",
-        "  help                  Show this help",
+        "Mandatory arguments to long options are mandatory for short options too.",
+        "Ordering options:",
         "",
-        "Options:",
-        i"  -g, --greeting TEXT   Greeting used by 'hello' (default: {$ DEFAULT_GREETING $})",
-        "      --shout           Print the greeting in upper case",
-        "  -v, --verbose         Print diagnostic messages to stderr",
-        "  -h, --help            Show this help and exit",
-        "  -V, --version         Show the version and exit",
+        "  -b, --ignore-leading-blanks  ignore leading blanks",
+        "  -f, --ignore-case           fold lower case to upper case characters",
+        "  -n, --numeric-sort          compare according to string numerical value",
+        "  -r, --reverse               reverse the result of comparisons",
+        "",
+        "Other options:",
+        "",
+        "  -c, --check, --check=diagnose-first  check for sorted input; do not sort",
+        "  -C, --check=quiet, --check=silent  like -c, but do not report first bad line",
+        "  -k, --key=KEYDEF          sort via a key; KEYDEF gives location and type",
+        "  -o, --output=FILE         write result to FILE instead of standard output",
+        "  -s, --stable              stabilize sort by disabling last-resort comparison",
+        "  -t, --field-separator=SEP  use SEP instead of non-blank to blank transition",
+        "  -u, --unique              with -c, check for strict ordering;",
+        "                              without -c, output only the first of an equal run",
+        "      --help        display this help and exit",
+        "      --version     output version information and exit",
+        "",
+        "KEYDEF is F[.C][OPTS][,F[.C][OPTS]] for start and stop position, where F is a",
+        "field number and C a character position in the field; both are origin 1, and",
+        "the stop position defaults to the line's end.  If neither -t nor -b is in",
+        "effect, characters in a field are counted from the beginning of the preceding",
+        "whitespace.  OPTS is one or more single-letter ordering options [bfnr],",
+        "which override global ordering options for that key.  If no key is given, use",
+        "the entire line as the key.",
+        "",
+        "Lines are compared byte by byte, as GNU sort does with LC_ALL=C.",
     ];
     return lines.join("\n");
 }
 
 pub func version_line(): string {
-    return i"{$ APP_NAME $} {$ APP_VERSION $}";
+    return i"{$ APP_NAME $} (loup-cmd-{$ APP_NAME $}) {$ APP_VERSION $}";
 }
