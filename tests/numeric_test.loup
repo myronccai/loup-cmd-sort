@@ -1,5 +1,12 @@
 @mode(host.dual)
 
+# Unit tests for -n comparison (commands.numeric): integers, signs and
+# zeros, fractions, and keys that are not numbers.
+#
+# Runtime: host.dual, run by the test runner: `make test` interprets this
+# file with Stage0 (`loup-bootstrap test --no-parallel`, source/ on
+# LOUPPATH), one test per `func test_*()`. It is not part of the binary.
+
 from debug.assert import (expect, expectEq);
 from commands.numeric import (numeric_compare);
 from commands.table import (Table, new_table, append_text);

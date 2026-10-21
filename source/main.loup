@@ -1,7 +1,14 @@
 @mode(host.dual)
 
-# Entry point. Keep this file thin: all behaviour lives in cli.app.run so
-# that tests can call it with an argument list.
+# sort: entry point. Keep this file thin: all behaviour lives in
+# cli.app.run so that tests can call it with an argument list.
+#
+# Runtime: host.dual. main() gets the command line from runtime.args(). The
+# same source runs two ways: `make run` interprets it with `loup run
+# source/main.loup`, and `make build` compiles it with the rest of source/
+# into the native binary build/sort, which `make e2e` and CI then exercise.
+# Only the native binary can write output that is not valid UTF-8 (see
+# commands/output.loup); `loup run` stops there.
 
 from cli.app import (run);
 

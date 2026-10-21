@@ -1,5 +1,13 @@
 @mode(host.dual)
 
+# Unit tests for sort's argument parsing (cli.args): defaults, mixed
+# operands, clusters and values, long options, --check forms, getopt's
+# and sort's errors, and how global options reach the keys.
+#
+# Runtime: host.dual, run by the test runner: `make test` interprets this
+# file with Stage0 (`loup-bootstrap test --no-parallel`, source/ on
+# LOUPPATH), one test per `func test_*()`. It is not part of the binary.
+
 from debug.assert import (expect, expectEq);
 from cli.args import (Options, ArgError, parse_args, find_long);
 

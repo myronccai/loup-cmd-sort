@@ -2,6 +2,9 @@
 
 # Comparing two lines, as GNU sort's compare() and keycompare() do in the C
 # locale: key by key, then the whole line as a last resort.
+#
+# Runtime: host.dual. Compiled into the native binary build/sort by `make
+# build`; `loup run source/main.loup` interprets the same code.
 
 from commands.keys import (Key, key_start, key_limit);
 from commands.numeric import (numeric_compare);
@@ -110,6 +113,9 @@ pub func compare_lines(t: Table, c: Comparer, i: int, j: int): int {
         }
         k += 1;
     }
+    # All keys are equal: with -s or -u that makes the lines equal;
+    # otherwise the whole lines decide, in byte order (reversed by the
+    # global -r only).
     if (nkeys > 0 and !c.last_resort) {
         return 0;
     }

@@ -10,6 +10,9 @@
 # natively a comparator that reads a captured list of structs crashes
 # (see AGENTS.md). Sorting plain indexes with an explicit comparator works
 # in every lane.
+#
+# Runtime: host.dual. Compiled into the native binary build/sort by `make
+# build`; `loup run source/main.loup` interprets the same code.
 
 pub func merge_sort(n: int, cmp: fn(int, int): int): list[int] {
     var src: list[int] = [];

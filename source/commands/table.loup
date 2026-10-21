@@ -5,6 +5,9 @@
 # ends[i] is the offset of its newline. Working on bytes rather than Loup
 # strings gives the C locale's byte order and byte offsets, keeps bytes that
 # are not valid UTF-8, and lets the comparator run without allocating.
+#
+# Runtime: host.dual. Compiled into the native binary build/sort by `make
+# build`; `loup run source/main.loup` interprets the same code.
 
 const NEWLINE: int = 10;
 

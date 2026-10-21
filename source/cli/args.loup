@@ -4,10 +4,10 @@
 #
 # - options and operands may be mixed; `--` ends the options and `-` alone
 #   is an operand (standard input);
-# - short options cluster (`-nru`), and one that arity a value arity the
+# - short options cluster (`-nru`), and one that takes a value takes the
 #   rest of its word or the next argument (`-t:`, `-t :`, `-k2,2n`);
 # - long options take `--name=VALUE` or `--name VALUE` and may be shortened
-#   to any unambiguous prefix (`--rev`); `--check` arity its value only as
+#   to any unambiguous prefix (`--rev`); `--check` takes its value only as
 #   `--check=WORD`;
 # - each option is acted on as it is read, so the first error wins and
 #   `--help` before an error still prints the help.
@@ -15,6 +15,15 @@
 # Global -b, -f, -n and -r are collected in a whole-line Key; once all
 # options are read they are copied into every -k key that has no ordering
 # letters of its own, as GNU does.
+#
+# Runtime: host.dual. Compiled into the native binary build/sort by `make
+# build`; `loup run source/main.loup` interprets the same code.
+#
+# Structure: Options and ArgError; the option tables (long_names,
+# long_keys and long_values are parallel lists); value checkers
+# (check_word, tab_byte); then parse_args, which turns each argument into
+# (key, value) pairs, acts on them, and finally checks -c against the
+# operands and hands the global options to the keys.
 
 from appinfo import (EXIT_TROUBLE);
 from commands.keys import (Key, whole_line_key, parse_key, set_ordering, inherit, has_no_ordering);
@@ -61,7 +70,7 @@ const SHORT_FLAGS: string = "bcCfnrsu";
 const SHORT_WITH_VALUE: string = "kot";
 
 # The long options, in the order GNU lists them, the short option each
-# stands for, and whether it arity a value ("0" no, "1" yes, "?" only as
+# stands for, and whether it takes a value ("0" no, "1" yes, "?" only as
 # `--name=VALUE`).
 func long_names(): list[string] {
     return [
@@ -319,6 +328,7 @@ pub func parse_args(argv: list[string]): Result[Options, ArgError] {
         }
     }
 
+    # What GNU checks once every option has been read.
     if (opts.check != "") {
         if (files.len() > 1) {
             return Err(plain_error("extra operand " + quote(files[1]) + " not allowed with -" + opts.check));

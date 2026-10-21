@@ -7,6 +7,13 @@
 # is sword 1, schar 2, eword 3, echar 0. A line is a byte range of a
 # `list[int]` (see commands/table.loup), so `key_start` and `key_limit` take
 # the data, the line's start and its limit (the offset of its newline).
+#
+# Runtime: host.dual. Compiled into the native binary build/sort by `make
+# build`; `loup run source/main.loup` interprets the same code.
+#
+# Structure: the Key class and the ordering letters (whole_line_key,
+# inherit, set_ordering); the KEYDEF parser (parse_key and its helpers);
+# then key_start and key_limit, GNU's begfield and limfield.
 
 const DIGITS: string = "0123456789";
 const SPACE: int = 32;
@@ -266,6 +273,9 @@ pub func key_start(data: list[int], start: int, lim: int, sword: int, schar: int
 # (GNU's limfield). `eword` is the 0-based last field; `echar` is how many
 # of its bytes count, 0 meaning all of them.
 pub func key_limit(data: list[int], start: int, lim: int, eword: int, echar: int, skip_blanks: bool, tab: int): int {
+    # With echar 0 the key takes all of field `eword`, so walk past one
+    # more field; with -t, stop on the tab that ends the key rather than
+    # after it.
     var ptr = start;
     var fields = eword;
     if (echar == 0) {

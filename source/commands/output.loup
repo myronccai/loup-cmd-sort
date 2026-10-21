@@ -3,10 +3,15 @@
 # Writing the sorted bytes. `print` writes a string's bytes unchanged, but
 # a Loup string can only be made from valid UTF-8 (`decode()` replaces
 # anything else with U+FFFD). So valid UTF-8 output is printed as one
-# string, and anything else goes byte by byte through C's putchar, which
-# only the native build can call (`loup run` stops with "unsupported
-# instruction"). A file named by -o is written with writeBytes, which is
-# byte-exact everywhere.
+# string, and anything else goes byte by byte through C's putchar. A file
+# named by -o is written with writeBytes, which is byte-exact.
+#
+# Runtime: host.dual. Compiled into the native binary build/sort by `make
+# build`, which links putchar and fflush from the C library through
+# `extern native "c"`. `loup run source/main.loup` interprets the same
+# code but stops with "unsupported instruction" if write_stdout reaches
+# putchar; its writeBytes also writes nothing at all for about 26 KB or
+# more (Loup 1.26.0), so `make run` with -o only suits small outputs.
 
 extern native "c" func putchar(c: int32): int32;
 extern native "c" func fflush(stream: int): int32;

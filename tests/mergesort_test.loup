@@ -1,5 +1,12 @@
 @mode(host.dual)
 
+# Unit tests for the index merge sort (commands.mergesort): order by the
+# comparator, stability, and empty and odd sizes.
+#
+# Runtime: host.dual, run by the test runner: `make test` interprets this
+# file with Stage0 (`loup-bootstrap test --no-parallel`, source/ on
+# LOUPPATH), one test per `func test_*()`. It is not part of the binary.
+
 from debug.assert import (expect, expectEq);
 from commands.mergesort import (merge_sort);
 

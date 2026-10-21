@@ -10,6 +10,13 @@
 # Keys are byte ranges data[pos:lim]. GNU's keys end with a NUL byte that
 # it writes after them; `at` returns 0 at and beyond `lim` for the same
 # effect.
+#
+# Runtime: host.dual. Compiled into the native binary build/sort by `make
+# build`; `loup run source/main.loup` interprets the same code.
+#
+# Structure: byte helpers (at, skip_zeros, digit_count, is_zero); then
+# from the inside out: fraction_compare, magnitude_compare, and
+# numeric_compare, which deals with blanks and signs.
 
 from commands.keys import (is_blank);
 

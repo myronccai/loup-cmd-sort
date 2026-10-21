@@ -1,5 +1,13 @@
 @mode(host.dual)
 
+# Unit tests for whole sorts (commands.sort) through sort_text: byte
+# order, -r, -f, -n, -b, keys, global -r with keys, -u, a missing final
+# newline, -c's first disorder, and byte-exact tables.
+#
+# Runtime: host.dual, run by the test runner: `make test` interprets this
+# file with Stage0 (`loup-bootstrap test --no-parallel`, source/ on
+# LOUPPATH), one test per `func test_*()`. It is not part of the binary.
+
 from debug.assert import (expect, expectEq);
 from cli.args import (Options, parse_args);
 from commands.sort import (sort_text, first_disorder, comparer_for, line_text);

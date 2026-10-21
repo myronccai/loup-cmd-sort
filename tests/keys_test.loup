@@ -1,5 +1,13 @@
 @mode(host.dual)
 
+# Unit tests for sort keys (commands.keys): KEYDEF positions and letters,
+# their errors, key ranges with blank-separated and -t fields, and
+# inheritance of the global options.
+#
+# Runtime: host.dual, run by the test runner: `make test` interprets this
+# file with Stage0 (`loup-bootstrap test --no-parallel`, source/ on
+# LOUPPATH), one test per `func test_*()`. It is not part of the binary.
+
 from debug.assert import (expect, expectEq);
 from commands.keys import (Key, parse_key, inherit, whole_line_key, set_ordering, key_start, key_limit);
 from commands.table import (Table, new_table, append_text);
