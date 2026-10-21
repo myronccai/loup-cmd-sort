@@ -8,6 +8,8 @@
 # LOUPPATH), one test per `func test_*()`. It is not part of the binary.
 
 from debug.assert import (expect, expectEq);
+from core.random import (Random);
+from system.collections import (sortBy);
 from commands.mergesort import (merge_sort);
 
 func joined(xs: list[int]): string {
@@ -43,4 +45,35 @@ func test_edge_sizes(): void {
     expectEq(merge_sort(0, func(a: int, b: int): int { return a - b; }).len(), 0, "empty");
     expectEq(joined(merge_sort(1, func(a: int, b: int): int { return a - b; })), "0", "one");
     expectEq(joined(merge_sort(5, func(a: int, b: int): int { return b - a; })), "4,3,2,1,0", "reversed comparator");
+}
+
+# A property test against an oracle: on 200 shuffled lists with repeated
+# values, merge_sort must give the same order as the library's sortBy.
+# Both are stable, so even equal values must come out in the same order.
+# sortBy does not link natively, but the Stage0 test runner has it. The
+# seeds are fixed, so a failure names a list that can be rebuilt.
+func test_agrees_with_sort_by_on_shuffled_lists(): void {
+    for (seed in 1..201) {
+        var rng = Random(seed);
+        # shuffle takes and returns list[Any].
+        var base: list[Any] = [];
+        for (k in 0..seed % 41) {
+            base.push(k % 7);
+        }
+        var values: list[int] = [];
+        safe {
+            for (v in rng.shuffle(base)) {
+                values.push(v as int);
+            }
+        }
+        let order = merge_sort(values.len(), func(a: int, b: int): int {
+            return values[a] - values[b];
+        });
+        var indexes: list[int] = [];
+        for (k in 0..values.len()) {
+            indexes.push(k);
+        }
+        let expected = sortBy(indexes, func(k: int): int { return values[k]; });
+        expectEq(joined(order), joined(expected), "seed " + str(seed));
+    }
 }

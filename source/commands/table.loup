@@ -7,7 +7,7 @@
 # are not valid UTF-8, and lets the comparator run without allocating.
 #
 # Runtime: host.dual. Compiled into the native binary build/sort by `make
-# build`; `loup run source/main.loup` interprets the same code.
+# build`; `make run` interprets the same code with `loup-bootstrap run`.
 
 const NEWLINE: int = 10;
 

@@ -69,7 +69,7 @@ license: <https://code-craft.ai/loup/license>.
 ```sh
 make build                                     # native binary: build/sort
 make ci                                        # check, unit tests, build, end-to-end tests
-make run ARGS="-t: -k3,3n /etc/passwd"         # run from source with loup run
+make run ARGS="-t: -k3,3n /etc/passwd"         # run from source with loup-bootstrap run
 ```
 
 ```text

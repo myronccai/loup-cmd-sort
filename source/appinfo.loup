@@ -5,7 +5,7 @@
 # package.lppkg.
 #
 # Runtime: host.dual. Constants only. Compiled into build/sort by `make
-# build`; `loup run source/main.loup` interprets the same code.
+# build`; `make run` interprets the same code with `loup-bootstrap run`.
 
 pub const APP_NAME: string = "sort";
 pub const APP_VERSION: string = "0.1.0";

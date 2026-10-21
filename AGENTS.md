@@ -57,7 +57,7 @@ Loup Lite comes from <https://github.com/code-craft-ai-company/loup-releases>;
 
 | Task | Command | Notes |
 |------|---------|-------|
-| Run from source | `make run ARGS="-t: -k3,3n /etc/passwd"` | `loup run source/main.loup -- ARGS`; output that is not valid UTF-8 needs the native build |
+| Run from source | `make run ARGS="-t: -k3,3n /etc/passwd"` | `loup-bootstrap run source/main.loup -- ARGS` (Stage0: the self-hosted `loup run` writes nothing for an `-o` file of about 26 KB or more); output that is not valid UTF-8 needs the native build |
 | Type-check | `make check` | checks `source/main.loup` and every module it imports; tests are not checked |
 | Run all tests | `make test` | every `tests/*_test.loup`, one at a time (`--no-parallel`) |
 | Run matching tests | `make test TEST_ARGS="--filter numeric"` | tests whose name contains `numeric` |

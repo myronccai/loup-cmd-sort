@@ -6,7 +6,7 @@
 # Only run_sort prints; everything else returns values.
 #
 # Runtime: host.dual. Compiled into the native binary build/sort by `make
-# build`; `loup run source/main.loup` interprets the same code.
+# build`; `make run` interprets the same code with `loup-bootstrap run`.
 # The unit tests sort strings through sort_text.
 
 from io.fs import (isDir);
@@ -14,14 +14,14 @@ from io.path import (dirname);
 from appinfo import (APP_NAME, EXIT_OK, EXIT_DISORDER, EXIT_TROUBLE);
 from cli.args import (Options);
 from commands.table import (Table, new_table, line_count, append_bytes, append_text, push_line);
-from commands.compare import (Comparer, new_comparer, compare_lines);
+from commands.compare import (Comparer, compare_lines);
 from commands.mergesort import (merge_sort);
 from commands.output import (write_stdout, write_file, text_of);
 
 # The comparator settings for `t` under `opts`. -s and -u turn off the
 # last-resort comparison of whole lines.
 pub func comparer_for(t: Table, opts: Options): Comparer {
-    return new_comparer(t, opts.keys, opts.tab, !(opts.distinct or opts.stable), opts.reverse);
+    return Comparer.build(t, opts.keys, opts.tab, !(opts.distinct or opts.stable), opts.reverse);
 }
 
 # The line numbers of `t` in sorted order.
@@ -36,7 +36,7 @@ pub func sorted_lines(t: Table, c: Comparer): list[int] {
 pub func unique_lines(t: Table, c: Comparer, order: list[int]): list[int] {
     var out: list[int] = [];
     for (i in order) {
-        if (out.len() == 0 or compare_lines(t, c, out[out.len() - 1], i) != 0) {
+        if (out.len() == 0 or compare_lines(t, c, out[-1], i) != 0) {
             out.push(i);
         }
     }
@@ -93,18 +93,18 @@ pub func line_text(t: Table, i: int): string {
     return text_of(line);
 }
 
-# Why the -o file cannot be opened, or "" if it looks writable.
-func output_problem(path: string): string {
+# Why the -o file cannot be opened, or None if it looks writable.
+pub func output_problem(path: string): string? {
     if (path == "") {
-        return "No such file or directory";
+        return Some("No such file or directory");
     }
     if (isDir(path)) {
-        return "Is a directory";
+        return Some("Is a directory");
     }
     if (!isDir(dirname(path))) {
-        return "No such file or directory";
+        return Some("No such file or directory");
     }
-    return "";
+    return None;
 }
 
 func fail(message: string): int {
@@ -130,8 +130,8 @@ pub func run_sort(opts: Options): int {
     }
     if (opts.has_output) {
         let problem = output_problem(opts.output);
-        if (problem != "") {
-            return fail("open failed: " + opts.output + ": " + problem);
+        if (problem.is_some()) {
+            return fail("open failed: " + opts.output + ": " + problem.unwrap());
         }
     }
 

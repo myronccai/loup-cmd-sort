@@ -12,17 +12,19 @@
 # in every lane.
 #
 # Runtime: host.dual. Compiled into the native binary build/sort by `make
-# build`; `loup run source/main.loup` interprets the same code.
+# build`; `make run` interprets the same code with `loup-bootstrap run`.
 
-pub func merge_sort(n: int, cmp: fn(int, int): int): list[int] {
+# `cmp` is `noescape`: the comparator is only called during the sort and
+# never kept, so a caller may pass a lambda over its own locals.
+pub func merge_sort(n: int, cmp: noescape fn(int, int): int): list[int] {
     var src: list[int] = [];
     var dst: list[int] = [];
     for (k in 0..n) {
         src.push(k);
         dst.push(k);
     }
-    var width = 1;
-    while (width < n) {
+    # One pass per run width: 1, 2, 4, ... until a single run is left.
+    for (var width = 1; width < n; width = width * 2) {
         var lo = 0;
         while (lo < n) {
             var mid = lo + width;
@@ -61,7 +63,6 @@ pub func merge_sort(n: int, cmp: fn(int, int): int): list[int] {
         let merged = dst;
         dst = src;
         src = merged;
-        width = width * 2;
     }
     return src;
 }

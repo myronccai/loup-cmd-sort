@@ -9,7 +9,7 @@
 # the data, the line's start and its limit (the offset of its newline).
 #
 # Runtime: host.dual. Compiled into the native binary build/sort by `make
-# build`; `loup run source/main.loup` interprets the same code.
+# build`; `make run` interprets the same code with `loup-bootstrap run`.
 #
 # Structure: the Key class and the ordering letters (whole_line_key,
 # inherit, set_ordering); the KEYDEF parser (parse_key and its helpers);
@@ -21,7 +21,7 @@ const TAB: int = 9;
 
 # Larger than any line. Counts that overflow are capped to it, as GNU caps
 # them to SIZE_MAX.
-const HUGE: int = 1000000000000000;
+const HUGE: int = 1_000_000_000_000_000;
 
 # One sort key. A class rather than a struct: keys cross module boundaries,
 # and the native build corrupts struct values that do (see AGENTS.md).

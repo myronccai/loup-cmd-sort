@@ -17,9 +17,11 @@ TEST_ARGS      ?=
 
 all: build
 
-# Run from source, e.g. `make run ARGS="-t: -k3,3n /etc/passwd"`.
+# Run from source, e.g. `make run ARGS="-t: -k3,3n /etc/passwd"`, with
+# Stage0's interpreter: the self-hosted `loup run` of Loup 1.26.0 silently
+# writes nothing for an -o file of about 26 KB or more (writeBytes).
 run:
-	$(LOUP) run source/main.loup -- $(ARGS)
+	$(LOUP_BOOTSTRAP) run source/main.loup -- $(ARGS)
 
 # Type-check source/main.loup and every module it imports.
 check:

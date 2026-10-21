@@ -17,7 +17,7 @@
 # letters of its own, as GNU does.
 #
 # Runtime: host.dual. Compiled into the native binary build/sort by `make
-# build`; `loup run source/main.loup` interprets the same code.
+# build`; `make run` interprets the same code with `loup-bootstrap run`.
 #
 # Structure: Options and ArgError; the option tables (long_names,
 # long_keys and long_values are parallel lists); value checkers

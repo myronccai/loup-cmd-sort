@@ -4,11 +4,13 @@
 # cli.app.run so that tests can call it with an argument list.
 #
 # Runtime: host.dual. main() gets the command line from runtime.args(). The
-# same source runs two ways: `make run` interprets it with `loup run
-# source/main.loup`, and `make build` compiles it with the rest of source/
-# into the native binary build/sort, which `make e2e` and CI then exercise.
+# same source runs two ways: `make run` interprets it with Stage0
+# (`loup-bootstrap run source/main.loup`), and `make build` compiles it
+# with the rest of source/ into the native binary build/sort, which
+# `make e2e` and CI then exercise. `make run` avoids the self-hosted
+# `loup run`, which writes nothing for an -o file of about 26 KB or more.
 # Only the native binary can write output that is not valid UTF-8 (see
-# commands/output.loup); `loup run` stops there.
+# commands/output.loup); both interpreters stop there.
 
 from cli.app import (run);
 

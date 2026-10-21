@@ -8,10 +8,10 @@
 #
 # Runtime: host.dual. Compiled into the native binary build/sort by `make
 # build`, which links putchar and fflush from the C library through
-# `extern native "c"`. `loup run source/main.loup` interprets the same
-# code but stops with "unsupported instruction" if write_stdout reaches
-# putchar; its writeBytes also writes nothing at all for about 26 KB or
-# more (Loup 1.26.0), so `make run` with -o only suits small outputs.
+# `extern native "c"`. `make run` interprets the same code with Stage0
+# (`loup-bootstrap run`), which stops if write_stdout reaches putchar. It
+# is Stage0 because the self-hosted `loup run`'s writeBytes writes nothing
+# at all for about 26 KB or more (Loup 1.26.0), which broke -o.
 
 extern native "c" func putchar(c: int32): int32;
 extern native "c" func fflush(stream: int): int32;

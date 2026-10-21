@@ -5,8 +5,8 @@
 # exception into status 2, as GNU sort reports trouble.
 #
 # Runtime: host.dual. Compiled into the native binary build/sort by `make
-# build`; `loup run source/main.loup` interprets the same code, and the unit
-# tests call run() directly.
+# build`; `make run` interprets the same code with `loup-bootstrap run`,
+# and the unit tests call run() directly.
 
 from appinfo import (APP_NAME, EXIT_OK, EXIT_TROUBLE);
 from cli.args import (Options, ArgError, parse_args);

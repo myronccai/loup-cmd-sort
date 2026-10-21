@@ -8,9 +8,11 @@
 # file with Stage0 (`loup-bootstrap test --no-parallel`, source/ on
 # LOUPPATH), one test per `func test_*()`. It is not part of the binary.
 
-from debug.assert import (expect, expectEq);
+from debug.assert import (expect, expectEq, expectSome);
+from core.random import (Random);
+from system.collections import (distinct);
 from cli.args import (Options, parse_args);
-from commands.sort import (sort_text, first_disorder, comparer_for, line_text);
+from commands.sort import (sort_text, first_disorder, comparer_for, line_text, output_problem);
 from commands.table import (Table, new_table, append_text, append_bytes, line_count);
 from commands.output import (is_utf8);
 
@@ -121,4 +123,34 @@ func test_is_utf8(): void {
     expect(!is_utf8([0xC3]), "truncated");
     expect(!is_utf8([0xED, 0xA0, 0x80]), "surrogate");
     expect(!is_utf8([0xC0, 0x80]), "overlong");
+}
+
+func test_output_problem(): void {
+    expect(output_problem("tests/out.txt").is_none(), "a new file in a directory");
+    expectEq(expectSome(output_problem("tests"), "a directory"), "Is a directory", "directory");
+    expectEq(expectSome(output_problem("no/such/dir/out"), "missing parent"), "No such file or directory", "parent");
+    expectEq(expectSome(output_problem(""), "empty name"), "No such file or directory", "empty");
+}
+
+# -u against an oracle: for whole-line keys, sort -u must print what
+# system.collections.distinct keeps of the plain sort's lines. Seeded
+# shuffles of words with repeats, so a failure can be rebuilt.
+func test_unique_agrees_with_distinct(): void {
+    let words = ["b", "a", "B", "ab", "a", "", "b", "é", "a b", "ab"];
+    let none: list[string] = [];
+    for (seed in 1..51) {
+        var rng = Random(seed);
+        var mixed: list[Any] = [];
+        for (w in words) {
+            mixed.push(w);
+        }
+        var lines: list[string] = [];
+        safe {
+            for (w in rng.shuffle(mixed)) {
+                lines.push(w as string);
+            }
+        }
+        let plain = sorted(none, lines).split("|");
+        expectEq(sorted(["-u"], lines), distinct(plain).join("|"), "seed " + str(seed));
+    }
 }

@@ -4,7 +4,7 @@
 # locale: key by key, then the whole line as a last resort.
 #
 # Runtime: host.dual. Compiled into the native binary build/sort by `make
-# build`; `loup run source/main.loup` interprets the same code.
+# build`; `make run` interprets the same code with `loup-bootstrap run`.
 
 from commands.keys import (Key, key_start, key_limit);
 from commands.numeric import (numeric_compare);
@@ -26,36 +26,37 @@ pub class Comparer {
     pub var lines: int = 0;
     pub var starts: list[int] = [];
     pub var limits: list[int] = [];
-}
 
-# Builds the Comparer for the lines of `t`. `tab` is the -t byte or -1.
-pub func new_comparer(t: Table, keys: list[Key], tab: int, last_resort: bool, reverse: bool): Comparer {
-    let c = Comparer();
-    let n = line_count(t);
-    safe {
-        c.keys = keys;
-        c.last_resort = last_resort;
-        c.reverse = reverse;
-        c.lines = n;
-        for (key in keys) {
-            for (i in 0..n) {
-                let s = t.starts[i];
-                let e = t.ends[i];
-                let lo = key_start(t.data, s, e, key.sword, key.schar, key.skip_start, tab);
-                var hi = e;
-                if (key.eword >= 0) {
-                    hi = key_limit(t.data, s, e, key.eword, key.echar, key.skip_end, tab);
+    # Builds the Comparer for the lines of `t`. `tab` is the -t byte or
+    # -1. A static factory: the key ranges are filled in here, once.
+    pub static func build(t: Table, keys: list[Key], tab: int, last_resort: bool, reverse: bool): Comparer {
+        let c = Comparer();
+        let n = line_count(t);
+        safe {
+            c.keys = keys;
+            c.last_resort = last_resort;
+            c.reverse = reverse;
+            c.lines = n;
+            for (key in keys) {
+                for (i in 0..n) {
+                    let s = t.starts[i];
+                    let e = t.ends[i];
+                    let lo = key_start(t.data, s, e, key.sword, key.schar, key.skip_start, tab);
+                    var hi = e;
+                    if (key.eword >= 0) {
+                        hi = key_limit(t.data, s, e, key.eword, key.echar, key.skip_end, tab);
+                    }
+                    # A key that ends before it starts is empty.
+                    if (hi < lo) {
+                        hi = lo;
+                    }
+                    c.starts.push(lo);
+                    c.limits.push(hi);
                 }
-                # A key that ends before it starts is empty.
-                if (hi < lo) {
-                    hi = lo;
-                }
-                c.starts.push(lo);
-                c.limits.push(hi);
             }
         }
+        return c;
     }
-    return c;
 }
 
 func upper(b: int): int {
@@ -94,8 +95,10 @@ pub func bytes_compare(data: list[int], a: int, alim: int, b: int, blim: int, fo
 }
 
 # Compares lines i and j of `t`: negative, zero or positive as line i sorts
-# before, with or after line j.
-pub func compare_lines(t: Table, c: Comparer, i: int, j: int): int {
+# before, with or after line j. The merge sort calls this for every
+# comparison, so the table and the Comparer are borrowed: read for the
+# call, never kept or copied.
+pub func compare_lines(borrow t: Table, borrow c: Comparer, i: int, j: int): int {
     let nkeys = c.keys.len();
     var k = 0;
     while (k < nkeys) {

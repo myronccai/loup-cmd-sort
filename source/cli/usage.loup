@@ -3,7 +3,7 @@
 # The --help text and the --version line of sort.
 #
 # Runtime: host.dual. Compiled into the native binary build/sort by `make
-# build`; `loup run source/main.loup` interprets the same code.
+# build`; `make run` interprets the same code with `loup-bootstrap run`.
 
 from appinfo import (APP_NAME, APP_VERSION);
 

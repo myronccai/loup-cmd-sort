@@ -12,7 +12,7 @@
 # effect.
 #
 # Runtime: host.dual. Compiled into the native binary build/sort by `make
-# build`; `loup run source/main.loup` interprets the same code.
+# build`; `make run` interprets the same code with `loup-bootstrap run`.
 #
 # Structure: byte helpers (at, skip_zeros, digit_count, is_zero); then
 # from the inside out: fraction_compare, magnitude_compare, and
@@ -36,14 +36,12 @@ func is_digit(b: int): bool {
 }
 
 # The sign of `n` as -1, 0 or 1.
-func sign(n: int): int {
-    if (n < 0) {
-        return -1;
-    }
-    if (n > 0) {
-        return 1;
-    }
-    return 0;
+pub func sign(n: int): int {
+    return match n {
+        0 => 0,
+        x if (x < 0) => -1,
+        _ => 1,
+    };
 }
 
 # The position after the zeros that start at `pos`.
